@@ -1,55 +1,51 @@
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { FileText, Info, UserPlus, LogIn, Users, Search } from "lucide-react";
+import { FileText, LogIn, UserPlus, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const Header = () => {
+  const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
+
   return (
     <header className="sticky top-0 z-50 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-b border-border">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2">
             <FileText className="h-6 w-6 text-primary" />
-            <span className="font-semibold text-primary text-lg">ICT Device Issuance Management Platform</span>
-          </div>
+            <span className="font-semibold text-primary text-lg hidden sm:inline">ICT Device Issuance Platform</span>
+            <span className="font-semibold text-primary text-lg sm:hidden">ICT Platform</span>
+          </Link>
 
           {/* Navigation */}
-          <nav className="hidden md:flex items-center gap-1">
-            <Button variant="secondary" size="sm" className="gap-2">
-              <Info className="h-4 w-4" />
-              About
+          <nav className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="text-muted-foreground"
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="gap-2 text-muted-foreground"
+              onClick={() => navigate('/auth')}
+            >
               <UserPlus className="h-4 w-4" />
-              Register
+              <span className="hidden sm:inline">Register</span>
             </Button>
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
+            <Button 
+              size="sm" 
+              className="gap-2"
+              onClick={() => navigate('/auth')}
+            >
               <LogIn className="h-4 w-4" />
-              Login
-            </Button>
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-              <Users className="h-4 w-4" />
-              Demo Accounts
-            </Button>
-            <Button size="sm" className="ml-2 gap-2">
-              <Users className="h-4 w-4" />
-              Login
+              <span className="hidden sm:inline">Login</span>
             </Button>
           </nav>
-        </div>
-
-        {/* Search Bar */}
-        <div className="flex items-center justify-center pb-4 gap-4">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search FAQs, Help Center," 
-              className="pl-10 bg-card border-border"
-            />
-          </div>
-          <Button variant="link" className="text-primary font-medium">
-            Demo Accounts
-          </Button>
         </div>
       </div>
     </header>
