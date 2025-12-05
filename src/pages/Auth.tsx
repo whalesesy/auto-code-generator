@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Monitor, Check, X } from 'lucide-react';
+import { Eye, EyeOff, Monitor, Check, X, ArrowLeft } from 'lucide-react';
 import { z } from 'zod';
 
 const passwordSchema = z.string()
@@ -25,6 +26,8 @@ export default function Auth() {
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('login');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
 
@@ -87,10 +90,41 @@ export default function Auth() {
     setLoading(false);
 
     if (error) {
-      toast({ title: 'Signup failed', description: error.message, variant: 'destructive' });
+      if (error.message.includes('already registered')) {
+        toast({ title: 'Email already registered', description: 'Please login or use a different email.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Signup failed', description: error.message, variant: 'destructive' });
+      }
     } else {
-      toast({ title: 'Account created!', description: 'You can now log in.' });
-      navigate('/dashboard');
+      toast({ title: 'Account created!', description: 'You can now log in with your credentials.' });
+      setActiveTab('login');
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      emailSchema.parse(email);
+    } catch {
+      toast({ title: 'Invalid email', description: 'Please enter a valid email address.', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth?tab=reset`,
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ 
+        title: 'Password reset email sent!', 
+        description: 'Check your inbox for the reset link.' 
+      });
+      setShowForgotPassword(false);
     }
   };
 
@@ -136,11 +170,63 @@ export default function Auth() {
     </div>
   );
 
+  if (showForgotPassword) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <Button 
+              variant="ghost" 
+              className="absolute left-4 top-4" 
+              onClick={() => setShowForgotPassword(false)}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div className="flex justify-center mb-4 pt-8">
+              <div className="p-3 rounded-xl bg-primary/10">
+                <Monitor className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl">Reset Password</CardTitle>
+            <CardDescription>Enter your email to receive a password reset link</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="resetEmail">Email Address</Label>
+                <Input
+                  id="resetEmail"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? 'Sending...' : 'Send Reset Link'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
+          <Button 
+            variant="ghost" 
+            className="absolute left-4 top-4" 
+            onClick={() => navigate('/')}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Home
+          </Button>
+          <div className="flex justify-center mb-4 pt-8">
             <div className="p-3 rounded-xl bg-primary/10">
               <Monitor className="h-8 w-8 text-primary" />
             </div>
@@ -149,7 +235,7 @@ export default function Auth() {
           <CardDescription>Sign in to manage device requests</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="login" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
@@ -169,7 +255,17 @@ export default function Auth() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    <Button 
+                      type="button" 
+                      variant="link" 
+                      className="px-0 h-auto text-xs"
+                      onClick={() => setShowForgotPassword(true)}
+                    >
+                      Forgot password?
+                    </Button>
+                  </div>
                   <div className="relative">
                     <Input
                       id="password"
@@ -262,6 +358,13 @@ export default function Auth() {
                   {loading ? 'Creating account...' : 'Create Account'}
                 </Button>
               </form>
+
+              <p className="text-xs text-muted-foreground text-center mt-4">
+                By signing up, you agree to our{' '}
+                <Link to="/terms" className="text-primary hover:underline">Terms</Link>
+                {' '}and{' '}
+                <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>
+              </p>
             </TabsContent>
           </Tabs>
         </CardContent>
