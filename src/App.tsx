@@ -16,6 +16,10 @@ import Inventory from "./pages/Inventory";
 import Reports from "./pages/Reports";
 import Feedback from "./pages/Feedback";
 import Help from "./pages/Help";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Contact from "./pages/Contact";
+import HelpCenter from "./pages/HelpCenter";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +43,10 @@ const App = () => (
               <Route path="/reports" element={<Reports />} />
               <Route path="/feedback" element={<Feedback />} />
               <Route path="/help" element={<Help />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/help-center" element={<HelpCenter />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
