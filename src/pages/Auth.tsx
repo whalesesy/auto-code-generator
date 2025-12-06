@@ -130,9 +130,9 @@ export default function Auth() {
 
   const handleDemoLogin = async (role: 'admin' | 'approver' | 'staff') => {
     const demoCredentials = {
-      admin: { email: 'admin@demo.com', password: 'Admin123!' },
-      approver: { email: 'approver@demo.com', password: 'Approver123!' },
-      staff: { email: 'staff@demo.com', password: 'Staff123!' },
+      admin: { email: 'admin@demo.com', password: 'Demo@123456' },
+      approver: { email: 'approver@demo.com', password: 'Demo@123456' },
+      staff: { email: 'staff@demo.com', password: 'Demo@123456' },
     };
 
     setLoading(true);
