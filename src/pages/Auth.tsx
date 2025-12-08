@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Monitor, Check, X, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome } from 'lucide-react';
 import { z } from 'zod';
 
 const passwordSchema = z.string()
@@ -147,6 +148,45 @@ export default function Auth() {
       });
     } else {
       navigate('/dashboard');
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ 
+        title: 'Google sign-in failed', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    }
+  };
+
+  const handleMicrosoftSignIn = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'azure',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+        scopes: 'openid profile email',
+      },
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ 
+        title: 'Microsoft sign-in failed', 
+        description: error.message,
+        variant: 'destructive' 
+      });
     }
   };
 
@@ -291,18 +331,45 @@ export default function Auth() {
                 </Button>
               </form>
 
-              <div className="mt-6">
-                <p className="text-sm text-muted-foreground text-center mb-3">Quick demo access:</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleDemoLogin('staff')} disabled={loading}>
-                    Staff
+              <div className="mt-6 space-y-4">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <Separator className="w-full" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="outline" onClick={handleGoogleSignIn} disabled={loading} className="w-full">
+                    <Chrome className="h-4 w-4 mr-2" />
+                    Google
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleDemoLogin('approver')} disabled={loading}>
-                    Approver
+                  <Button variant="outline" onClick={handleMicrosoftSignIn} disabled={loading} className="w-full">
+                    <svg className="h-4 w-4 mr-2" viewBox="0 0 21 21" fill="none">
+                      <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                      <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                      <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                      <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                    </svg>
+                    Microsoft
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleDemoLogin('admin')} disabled={loading}>
-                    Admin
-                  </Button>
+                </div>
+
+                <div>
+                  <p className="text-sm text-muted-foreground text-center mb-3">Quick demo access:</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleDemoLogin('staff')} disabled={loading}>
+                      Staff
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDemoLogin('approver')} disabled={loading}>
+                      Approver
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDemoLogin('admin')} disabled={loading}>
+                      Admin
+                    </Button>
+                  </div>
                 </div>
               </div>
             </TabsContent>
@@ -358,6 +425,33 @@ export default function Auth() {
                   {loading ? 'Creating account...' : 'Create Account'}
                 </Button>
               </form>
+
+              <div className="mt-6 space-y-4">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <Separator className="w-full" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">Or sign up with</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="outline" onClick={handleGoogleSignIn} disabled={loading} className="w-full">
+                    <Chrome className="h-4 w-4 mr-2" />
+                    Google
+                  </Button>
+                  <Button variant="outline" onClick={handleMicrosoftSignIn} disabled={loading} className="w-full">
+                    <svg className="h-4 w-4 mr-2" viewBox="0 0 21 21" fill="none">
+                      <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                      <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                      <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                      <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                    </svg>
+                    Microsoft
+                  </Button>
+                </div>
+              </div>
 
               <p className="text-xs text-muted-foreground text-center mt-4">
                 By signing up, you agree to our{' '}

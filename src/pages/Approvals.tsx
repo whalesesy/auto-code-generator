@@ -5,12 +5,14 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { CheckSquare, CheckCircle, XCircle, MessageSquare } from 'lucide-react';
+import { CheckSquare, CheckCircle, XCircle, MessageSquare, Search, AlertTriangle } from 'lucide-react';
 
 interface PendingRequest {
   id: string;
@@ -26,6 +28,8 @@ interface PendingRequest {
   profiles: { full_name: string; email: string; department: string | null } | null;
 }
 
+const categories = ['computing', 'mobile', 'peripherals', 'networking', 'audio_visual', 'other'];
+
 export default function Approvals() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<PendingRequest[]>([]);
@@ -34,6 +38,11 @@ export default function Approvals() {
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [comments, setComments] = useState('');
   const [processing, setProcessing] = useState(false);
+  
+  // Search and filter states
+  const [search, setSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterDate, setFilterDate] = useState('all');
 
   useEffect(() => {
     fetchPendingRequests();
@@ -52,6 +61,37 @@ export default function Approvals() {
     if (data) setRequests(data as any);
     setLoading(false);
   };
+
+  // Filter out user's own requests - approvers/admins cannot approve their own
+  const filteredRequests = requests
+    .filter(r => r.requester_id !== user?.id) // Cannot approve own requests
+    .filter(request => {
+      const matchesSearch = 
+        request.device_type.toLowerCase().includes(search.toLowerCase()) ||
+        request.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+        request.profiles?.department?.toLowerCase().includes(search.toLowerCase()) ||
+        request.purpose.toLowerCase().includes(search.toLowerCase());
+      
+      const matchesCategory = filterCategory === 'all' || request.device_category === filterCategory;
+      
+      let matchesDate = true;
+      if (filterDate === 'today') {
+        matchesDate = new Date(request.created_at).toDateString() === new Date().toDateString();
+      } else if (filterDate === 'week') {
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        matchesDate = new Date(request.created_at) >= weekAgo;
+      } else if (filterDate === 'month') {
+        const monthAgo = new Date();
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        matchesDate = new Date(request.created_at) >= monthAgo;
+      }
+      
+      return matchesSearch && matchesCategory && matchesDate;
+    });
+
+  // Get user's own pending requests count
+  const ownPendingRequests = requests.filter(r => r.requester_id === user?.id);
 
   const handleAction = async () => {
     if (!selectedRequest || !action) return;
@@ -100,18 +140,67 @@ export default function Approvals() {
           <p className="text-muted-foreground">Review and process device requests</p>
         </div>
 
+        {/* Alert for own pending requests */}
+        {ownPendingRequests.length > 0 && (
+          <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-5 w-5" />
+                <p className="text-sm font-medium">
+                  You have {ownPendingRequests.length} pending request(s) that require approval from another approver.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Search and Filters */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-wrap gap-4">
+              <div className="flex-1 min-w-[200px]">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search by device, requester, department, or purpose..." 
+                    value={search} 
+                    onChange={(e) => setSearch(e.target.value)} 
+                    className="pl-9" 
+                  />
+                </div>
+              </div>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-[150px]"><SelectValue placeholder="Category" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map(c => <SelectItem key={c} value={c} className="capitalize">{c.replace('_', ' ')}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filterDate} onValueChange={setFilterDate}>
+                <SelectTrigger className="w-[150px]"><SelectValue placeholder="Date Range" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">This Week</SelectItem>
+                  <SelectItem value="month">This Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckSquare className="h-5 w-5" />
               Requests Awaiting Approval
-              <Badge variant="secondary" className="ml-2">{requests.length}</Badge>
+              <Badge variant="secondary" className="ml-2">{filteredRequests.length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
               <p className="text-center py-8 text-muted-foreground">Loading...</p>
-            ) : requests.length > 0 ? (
+            ) : filteredRequests.length > 0 ? (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -126,7 +215,7 @@ export default function Approvals() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {requests.map(request => (
+                    {filteredRequests.map(request => (
                       <TableRow key={request.id}>
                         <TableCell>
                           <div>
@@ -172,7 +261,11 @@ export default function Approvals() {
             ) : (
               <div className="text-center py-8">
                 <CheckSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No pending requests</p>
+                <p className="text-muted-foreground">
+                  {requests.length > 0 && filteredRequests.length === 0 
+                    ? 'No requests match your filters' 
+                    : 'No pending requests'}
+                </p>
               </div>
             )}
           </CardContent>

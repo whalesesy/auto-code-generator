@@ -13,8 +13,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
-import { Package, Plus, Edit, Trash2, Download, Printer, Search, ArrowUpCircle, ArrowDownCircle, History } from 'lucide-react';
+import { Package, Plus, Edit, Trash2, Download, Printer, Search, ArrowUpCircle, ArrowDownCircle, History, AlertTriangle } from 'lucide-react';
 import { exportToCSV } from '@/lib/export';
+import { checkAndNotifyLowStock } from '@/hooks/useLowStockAlert';
 
 interface Device {
   id: string;
@@ -44,14 +45,24 @@ interface DeviceWithStock extends Device {
   current_stock: number;
 }
 
+interface PendingRequest {
+  id: string;
+  device_type: string;
+  device_category: string;
+  quantity: number;
+  status: string;
+}
+
 const categories = ['computing', 'mobile', 'peripherals', 'networking', 'audio_visual', 'other'];
 const statuses = ['available', 'issued', 'maintenance', 'damaged', 'lost'];
+const LOW_STOCK_THRESHOLD = 3;
 
 export default function Inventory() {
   const { role, loading: authLoading, user } = useAuth();
   const navigate = useNavigate();
   const [devices, setDevices] = useState<DeviceWithStock[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
@@ -64,6 +75,7 @@ export default function Inventory() {
   const [stockQuantity, setStockQuantity] = useState(1);
   const [stockReason, setStockReason] = useState('');
   const [editDevice, setEditDevice] = useState<Device | null>(null);
+  const [selectedStockDevice, setSelectedStockDevice] = useState<string>('');
   const [formData, setFormData] = useState({
     name: '',
     category: 'computing',
@@ -83,6 +95,7 @@ export default function Inventory() {
   useEffect(() => {
     fetchDevices();
     fetchStockMovements();
+    fetchPendingRequests();
   }, []);
 
   const fetchDevices = async () => {
@@ -119,6 +132,27 @@ export default function Inventory() {
       .order('created_at', { ascending: false });
     if (data) setStockMovements(data);
   };
+
+  const fetchPendingRequests = async () => {
+    const { data } = await supabase
+      .from('device_requests')
+      .select('id, device_type, device_category, quantity, status')
+      .in('status', ['pending', 'approved']);
+    if (data) setPendingRequests(data);
+  };
+
+  // Devices that are requested but might be out of stock
+  const outOfStockAlerts = devices.filter(d => d.current_stock === 0);
+  const lowStockAlerts = devices.filter(d => d.current_stock > 0 && d.current_stock < LOW_STOCK_THRESHOLD);
+
+  // Calculate requested devices that are out of stock
+  const requestedOutOfStock = pendingRequests.filter(req => {
+    const matchingDevice = devices.find(d => 
+      d.name.toLowerCase().includes(req.device_type.toLowerCase()) ||
+      d.category === req.device_category
+    );
+    return matchingDevice && matchingDevice.current_stock < req.quantity;
+  });
 
   const filteredDevices = devices.filter(device => {
     const matchesSearch = device.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -177,15 +211,21 @@ export default function Inventory() {
   };
 
   const handleStockMovement = async () => {
-    if (!selectedDevice || !user) return;
+    if (!selectedDevice && !selectedStockDevice) return;
+    if (!user) return;
 
-    if (stockAction === 'out' && stockQuantity > selectedDevice.current_stock) {
+    const deviceId = selectedDevice?.id || selectedStockDevice;
+    const device = devices.find(d => d.id === deviceId);
+    
+    if (!device) return;
+
+    if (stockAction === 'out' && stockQuantity > device.current_stock) {
       toast({ title: 'Cannot remove more than available stock', variant: 'destructive' });
       return;
     }
 
     const { error } = await supabase.from('stock_movements').insert({
-      device_id: selectedDevice.id,
+      device_id: deviceId,
       movement_type: stockAction,
       quantity: stockQuantity,
       reason: stockReason || null,
@@ -196,11 +236,20 @@ export default function Inventory() {
       toast({ title: 'Error recording stock movement', variant: 'destructive' });
     } else {
       toast({ title: `Stock ${stockAction === 'in' ? 'added' : 'removed'} successfully!` });
+      
+      // Check for low stock and notify admins
+      const { data: adminRoles } = await supabase.from('user_roles').select('user_id').eq('role', 'admin');
+      if (adminRoles) {
+        const adminIds = adminRoles.map(r => r.user_id);
+        checkAndNotifyLowStock(deviceId, adminIds);
+      }
+      
       fetchDevices();
       fetchStockMovements();
       setIsStockDialogOpen(false);
       setStockQuantity(1);
       setStockReason('');
+      setSelectedStockDevice('');
     }
   };
 
@@ -237,9 +286,19 @@ export default function Inventory() {
     setIsAddOpen(true);
   };
 
-  const openStockDialog = (device: DeviceWithStock, action: 'in' | 'out') => {
+  const openStockDialog = (device: DeviceWithStock | null, action: 'in' | 'out') => {
     setSelectedDevice(device);
+    setSelectedStockDevice(device?.id || '');
     setStockAction(action);
+    setStockQuantity(1);
+    setStockReason('');
+    setIsStockDialogOpen(true);
+  };
+
+  const openQuickStockIn = () => {
+    setSelectedDevice(null);
+    setSelectedStockDevice('');
+    setStockAction('in');
     setStockQuantity(1);
     setStockReason('');
     setIsStockDialogOpen(true);
@@ -283,7 +342,7 @@ export default function Inventory() {
             <h1 className="text-3xl font-bold">Inventory Management</h1>
             <p className="text-muted-foreground">Manage all ICT devices and stock levels</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" onClick={() => exportToCSV(devices.map(d => ({
               ...d,
               stock_in: d.stock_in,
@@ -296,6 +355,10 @@ export default function Inventory() {
             <Button variant="outline" onClick={handlePrint}>
               <Printer className="h-4 w-4 mr-2" />
               Print
+            </Button>
+            <Button variant="secondary" onClick={openQuickStockIn}>
+              <ArrowUpCircle className="h-4 w-4 mr-2" />
+              Quick Stock In
             </Button>
             <Dialog open={isAddOpen} onOpenChange={(open) => { if (!open) resetForm(); else setIsAddOpen(true); }}>
               <DialogTrigger asChild>
@@ -361,6 +424,30 @@ export default function Inventory() {
             </Dialog>
           </div>
         </div>
+
+        {/* Low Stock Alerts */}
+        {(lowStockAlerts.length > 0 || outOfStockAlerts.length > 0) && (
+          <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-5 w-5" />
+                Stock Alerts
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {outOfStockAlerts.length > 0 && (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  <strong>Out of Stock ({outOfStockAlerts.length}):</strong> {outOfStockAlerts.map(d => d.name).join(', ')}
+                </p>
+              )}
+              {lowStockAlerts.length > 0 && (
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  <strong>Low Stock ({lowStockAlerts.length}):</strong> {lowStockAlerts.map(d => `${d.name} (${d.current_stock})`).join(', ')}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stock Summary Cards */}
         <div className="grid gap-4 md:grid-cols-4">
@@ -533,6 +620,21 @@ export default function Inventory() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {!selectedDevice && (
+              <div className="space-y-2">
+                <Label>Select Device</Label>
+                <Select value={selectedStockDevice} onValueChange={setSelectedStockDevice}>
+                  <SelectTrigger><SelectValue placeholder="Choose a device..." /></SelectTrigger>
+                  <SelectContent>
+                    {devices.map(d => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name} (Current: {d.current_stock})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Quantity</Label>
               <Input 
