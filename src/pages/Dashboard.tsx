@@ -9,6 +9,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ClipboardList, CheckCircle, XCircle, Package, Clock, TrendingUp } from 'lucide-react';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import { useLowStockAlert } from '@/hooks/useLowStockAlert';
 
 interface Stats {
   pending: number;
@@ -28,6 +29,9 @@ export default function Dashboard() {
   const { user, loading, role } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({ pending: 0, approved: 0, rejected: 0, issued: 0 });
+  
+  // Low stock alert for admins
+  useLowStockAlert();
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [weeklyData, setWeeklyData] = useState<{ date: string; requests: number }[]>([]);
 
