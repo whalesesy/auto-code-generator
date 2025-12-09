@@ -6,11 +6,12 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { exportToCSV } from '@/lib/export';
-import { BarChart3, Download, FileText, Package, Users, ClipboardList, Printer, TrendingUp, TrendingDown, ArrowLeft } from 'lucide-react';
+import { 
+  BarChart3, Download, FileText, Package, Users, ClipboardList, Printer, 
+  TrendingUp, TrendingDown, ArrowLeft, MessageSquare, Activity, PieChart, Calendar
+} from 'lucide-react';
 
 interface ReportData {
   id: string;
@@ -30,6 +31,10 @@ export default function Reports() {
     totalUsers: 0,
     totalStockIn: 0,
     totalStockOut: 0,
+    totalFeedback: 0,
+    adminCount: 0,
+    approverCount: 0,
+    staffCount: 0,
   });
   const [reportType, setReportType] = useState<string>('');
   const [reportData, setReportData] = useState<ReportData[]>([]);
@@ -40,11 +45,13 @@ export default function Reports() {
   }, []);
 
   const fetchStats = async () => {
-    const [devicesRes, requestsRes, profilesRes, stockRes] = await Promise.all([
+    const [devicesRes, requestsRes, profilesRes, stockRes, feedbackRes, rolesRes] = await Promise.all([
       supabase.from('devices').select('status'),
       supabase.from('device_requests').select('status'),
       supabase.from('profiles').select('id'),
       supabase.from('stock_movements').select('movement_type, quantity'),
+      supabase.from('feedback').select('id'),
+      supabase.from('user_roles').select('role'),
     ]);
 
     const stockIn = stockRes.data?.filter(s => s.movement_type === 'in').reduce((acc, s) => acc + s.quantity, 0) || 0;
@@ -55,20 +62,25 @@ export default function Reports() {
       availableDevices: devicesRes.data?.filter(d => d.status === 'available').length || 0,
       totalRequests: requestsRes.data?.length || 0,
       pendingRequests: requestsRes.data?.filter(r => r.status === 'pending').length || 0,
-      approvedRequests: requestsRes.data?.filter(r => r.status === 'approved').length || 0,
+      approvedRequests: requestsRes.data?.filter(r => r.status === 'approved' || r.status === 'issued').length || 0,
       rejectedRequests: requestsRes.data?.filter(r => r.status === 'rejected').length || 0,
       totalUsers: profilesRes.data?.length || 0,
       totalStockIn: stockIn,
       totalStockOut: stockOut,
+      totalFeedback: feedbackRes.data?.length || 0,
+      adminCount: rolesRes.data?.filter(r => r.role === 'admin').length || 0,
+      approverCount: rolesRes.data?.filter(r => r.role === 'approver').length || 0,
+      staffCount: rolesRes.data?.filter(r => r.role === 'staff').length || 0,
     });
   };
 
-  // Admin Reports
+  // ===== ADMIN REPORTS =====
   const generateFullSystemReport = async () => {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, email, department)');
+      .select('*, profiles!device_requests_requester_id_fkey(full_name, email, department)')
+      .order('created_at', { ascending: false });
     
     if (data) {
       const formatted = data.map(r => ({
@@ -164,7 +176,56 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  // Approver Reports
+  const generateAdminActivityReport = async () => {
+    setLoadingReport(true);
+    const { data: roles } = await supabase.from('user_roles').select('user_id').eq('role', 'admin');
+    const adminIds = roles?.map(r => r.user_id) || [];
+    
+    const { data } = await supabase
+      .from('device_requests')
+      .select('*, profiles!device_requests_requester_id_fkey(full_name)')
+      .in('approver_id', adminIds)
+      .order('approved_at', { ascending: false });
+    
+    if (data) {
+      const formatted = data.map(r => ({
+        id: r.id,
+        action: r.status,
+        device: r.device_type,
+        requester: (r as any).profiles?.full_name || 'Unknown',
+        comments: r.approver_comments || '-',
+        date: r.approved_at ? new Date(r.approved_at).toLocaleDateString() : '-',
+      }));
+      setReportData(formatted);
+      setReportType('Admin Activity Report');
+    }
+    setLoadingReport(false);
+  };
+
+  const generateUserActivityReport = async () => {
+    setLoadingReport(true);
+    const { data } = await supabase
+      .from('device_requests')
+      .select('*, profiles!device_requests_requester_id_fkey(full_name, department)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    
+    if (data) {
+      const formatted = data.map(r => ({
+        id: r.id,
+        user: (r as any).profiles?.full_name || 'Unknown',
+        department: (r as any).profiles?.department || '-',
+        device: r.device_type,
+        status: r.status,
+        date: new Date(r.created_at).toLocaleDateString(),
+      }));
+      setReportData(formatted);
+      setReportType('User Activity Report');
+    }
+    setLoadingReport(false);
+  };
+
+  // ===== APPROVER REPORTS =====
   const generatePendingApprovalsReport = async () => {
     setLoadingReport(true);
     const { data } = await supabase
@@ -214,7 +275,7 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  // Staff Reports
+  // ===== STAFF/USER REPORTS =====
   const generateMyRequestsReport = async () => {
     if (!user) return;
     setLoadingReport(true);
@@ -241,27 +302,104 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  const generateMyApprovedDevicesReport = async () => {
+  const generateStatusReport = async () => {
     if (!user) return;
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
       .select('*')
       .eq('requester_id', user.id)
-      .eq('status', 'approved');
+      .order('status');
     
     if (data) {
       const formatted = data.map(r => ({
         id: r.id,
         device_type: r.device_type,
-        model: r.device_model || '-',
-        quantity: r.quantity,
-        approved_at: r.approved_at ? new Date(r.approved_at).toLocaleDateString() : '-',
-        duration: r.duration,
+        status: r.status.toUpperCase(),
+        submitted: new Date(r.created_at).toLocaleDateString(),
+        updated: new Date(r.updated_at).toLocaleDateString(),
         comments: r.approver_comments || '-',
       }));
       setReportData(formatted);
-      setReportType('My Approved Devices Report');
+      setReportType('Status Report');
+    }
+    setLoadingReport(false);
+  };
+
+  const generateAnalyticReport = async () => {
+    if (!user) return;
+    setLoadingReport(true);
+    const { data } = await supabase
+      .from('device_requests')
+      .select('*')
+      .eq('requester_id', user.id)
+      .order('created_at', { ascending: false });
+    
+    if (data) {
+      const byMonth: { [key: string]: { pending: number; approved: number; rejected: number } } = {};
+      data.forEach(r => {
+        const month = new Date(r.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+        if (!byMonth[month]) byMonth[month] = { pending: 0, approved: 0, rejected: 0 };
+        if (r.status === 'pending') byMonth[month].pending++;
+        else if (r.status === 'approved' || r.status === 'issued') byMonth[month].approved++;
+        else if (r.status === 'rejected') byMonth[month].rejected++;
+      });
+      
+      const formatted = Object.entries(byMonth).map(([month, counts]) => ({
+        id: month,
+        month,
+        pending: counts.pending,
+        approved: counts.approved,
+        rejected: counts.rejected,
+        total: counts.pending + counts.approved + counts.rejected,
+      }));
+      setReportData(formatted);
+      setReportType('Analytics Report');
+    }
+    setLoadingReport(false);
+  };
+
+  const generateFeedbackReport = async () => {
+    if (!user) return;
+    setLoadingReport(true);
+    const { data } = await supabase
+      .from('feedback')
+      .select('*')
+      .eq('sender_id', user.id)
+      .order('created_at', { ascending: false });
+    
+    if (data) {
+      const formatted = data.map(f => ({
+        id: f.id,
+        subject: f.subject,
+        recipient_type: f.recipient_type,
+        message: f.message.substring(0, 100) + (f.message.length > 100 ? '...' : ''),
+        sent_at: new Date(f.created_at).toLocaleDateString(),
+      }));
+      setReportData(formatted);
+      setReportType('My Feedback Report');
+    }
+    setLoadingReport(false);
+  };
+
+  const generateAllFeedbackReport = async () => {
+    setLoadingReport(true);
+    const { data } = await supabase
+      .from('feedback')
+      .select('*, profiles!feedback_sender_id_fkey(full_name)')
+      .order('created_at', { ascending: false });
+    
+    if (data) {
+      const formatted = data.map(f => ({
+        id: f.id,
+        sender: (f as any).profiles?.full_name || 'Unknown',
+        subject: f.subject,
+        recipient_type: f.recipient_type,
+        message: f.message.substring(0, 100) + (f.message.length > 100 ? '...' : ''),
+        sent_at: new Date(f.created_at).toLocaleDateString(),
+      }));
+      setReportData(formatted);
+      setReportType('All Feedback Report');
     }
     setLoadingReport(false);
   };
@@ -292,21 +430,29 @@ export default function Reports() {
     { title: 'Inventory Report', desc: 'All devices with stock levels and details', action: generateInventoryReport, icon: Package },
     { title: 'Stock Movement Report', desc: 'All stock in/out movements history', action: generateStockMovementReport, icon: TrendingUp },
     { title: 'User Report', desc: 'All users with roles and departments', action: generateUserReport, icon: Users },
+    { title: 'Admin Activity', desc: 'Actions taken by administrators', action: generateAdminActivityReport, icon: Activity },
+    { title: 'User Activity', desc: 'Recent user activities and requests', action: generateUserActivityReport, icon: Activity },
+    { title: 'All Feedback', desc: 'All feedback submitted by users', action: generateAllFeedbackReport, icon: MessageSquare },
   ];
 
   const approverReports = [
     { title: 'Pending Approvals', desc: 'All requests awaiting your approval', action: generatePendingApprovalsReport, icon: ClipboardList },
     { title: 'Approval History', desc: 'Your approval/rejection decisions', action: generateApprovalHistoryReport, icon: FileText },
+    { title: 'Analytics Report', desc: 'Monthly breakdown of requests by status', action: generateAnalyticReport, icon: PieChart },
+    { title: 'Status Report', desc: 'Current status of all your requests', action: generateStatusReport, icon: BarChart3 },
+    { title: 'My Feedback', desc: 'Feedback you have submitted', action: generateFeedbackReport, icon: MessageSquare },
   ];
 
   const staffReports = [
-    { title: 'My Requests', desc: 'All your device requests and their status', action: generateMyRequestsReport, icon: ClipboardList },
-    { title: 'My Approved Devices', desc: 'Devices approved for your use', action: generateMyApprovedDevicesReport, icon: Package },
+    { title: 'Analytics Report', desc: 'Monthly breakdown of your requests', action: generateAnalyticReport, icon: PieChart },
+    { title: 'Status Report', desc: 'View status: Pending, Approved, or Rejected', action: generateStatusReport, icon: BarChart3 },
+    { title: 'My Requests', desc: 'All your device requests with dates', action: generateMyRequestsReport, icon: ClipboardList },
+    { title: 'My Feedback', desc: 'Feedback you have submitted', action: generateFeedbackReport, icon: MessageSquare },
   ];
 
   const getAvailableReports = () => {
-    if (role === 'admin') return [...adminReports, ...approverReports, ...staffReports];
-    if (role === 'approver') return [...approverReports, ...staffReports];
+    if (role === 'admin') return [...adminReports, ...approverReports.filter(r => r.title !== 'Analytics Report' && r.title !== 'Status Report' && r.title !== 'My Feedback'), ...staffReports];
+    if (role === 'approver') return [...approverReports, ...staffReports.filter(r => r.title !== 'Analytics Report' && r.title !== 'Status Report' && r.title !== 'My Feedback')];
     return staffReports;
   };
 
@@ -323,61 +469,103 @@ export default function Reports() {
           </div>
         </div>
 
-        {/* Overview Stats - Admin Only */}
+        {/* Overview Stats - Admin/ICT Manager Only */}
         {role === 'admin' && (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Devices</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
+          <>
+            <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  ICT Manager Dashboard - Project Overview
+                </CardTitle>
+                <CardDescription>Complete system overview with admin and user activities</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.totalDevices}</div>
-                <p className="text-xs text-muted-foreground">{stats.availableDevices} available</p>
-              </CardContent>
             </Card>
+            
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Total Devices</CardTitle>
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.totalDevices}</div>
+                  <p className="text-xs text-muted-foreground">{stats.availableDevices} available</p>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Stock In</CardTitle>
-                <TrendingUp className="h-4 w-4 text-green-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">{stats.totalStockIn}</div>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Stock In / Out</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="flex gap-2">
+                    <span className="text-xl font-bold text-green-600">+{stats.totalStockIn}</span>
+                    <span className="text-xl font-bold text-red-600">-{stats.totalStockOut}</span>
+                  </div>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Stock Out</CardTitle>
-                <TrendingDown className="h-4 w-4 text-red-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">{stats.totalStockOut}</div>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Request Status</CardTitle>
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.totalRequests}</div>
+                  <div className="flex gap-2 text-xs">
+                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700">{stats.pendingRequests} pending</Badge>
+                    <Badge variant="outline" className="bg-green-50 text-green-700">{stats.approvedRequests} approved</Badge>
+                    <Badge variant="outline" className="bg-red-50 text-red-700">{stats.rejectedRequests} rejected</Badge>
+                  </div>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Requests</CardTitle>
-                <ClipboardList className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.totalRequests}</div>
-                <p className="text-xs text-muted-foreground">{stats.pendingRequests} pending</p>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Users by Role</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.totalUsers}</div>
+                  <div className="flex gap-2 text-xs">
+                    <Badge variant="outline">{stats.adminCount} admins</Badge>
+                    <Badge variant="outline">{stats.approverCount} approvers</Badge>
+                    <Badge variant="outline">{stats.staffCount} staff</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.totalUsers}</div>
-              </CardContent>
-            </Card>
-          </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={generateAdminActivityReport}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Activity className="h-5 w-5 text-primary" />
+                    Admin Activities
+                  </CardTitle>
+                  <CardDescription>View all actions taken by administrators</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" className="w-full">View Admin Activity Report</Button>
+                </CardContent>
+              </Card>
+              
+              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={generateUserActivityReport}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Users className="h-5 w-5 text-primary" />
+                    User Activities
+                  </CardTitle>
+                  <CardDescription>View recent activities from all users</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" className="w-full">View User Activity Report</Button>
+                </CardContent>
+              </Card>
+            </div>
+          </>
         )}
 
         {/* Report Selection */}
@@ -393,7 +581,7 @@ export default function Reports() {
             <CardContent>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {getAvailableReports().map((report, index) => (
-                  <Card key={index} className="border-dashed hover:border-primary cursor-pointer transition-colors" onClick={report.action}>
+                  <Card key={index} className="border-dashed hover:border-primary hover:shadow-md cursor-pointer transition-all" onClick={report.action}>
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-2">
                         <report.icon className="h-5 w-5 text-primary" />
@@ -457,24 +645,20 @@ export default function Reports() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {reportData.map((row, index) => (
-                        <TableRow key={row.id || index}>
+                      {reportData.map(row => (
+                        <TableRow key={row.id}>
                           {getReportColumns().map(col => (
                             <TableCell key={col}>
                               {col === 'status' ? (
                                 <Badge variant={
-                                  row[col] === 'approved' ? 'default' :
-                                  row[col] === 'rejected' ? 'destructive' :
-                                  row[col] === 'pending' ? 'secondary' : 'outline'
-                                } className="capitalize">
-                                  {row[col]}
-                                </Badge>
-                              ) : col === 'type' ? (
-                                <Badge variant={row[col] === 'Stock In' ? 'default' : 'destructive'}>
+                                  row[col] === 'approved' || row[col] === 'APPROVED' ? 'default' : 
+                                  row[col] === 'rejected' || row[col] === 'REJECTED' ? 'destructive' : 
+                                  'secondary'
+                                }>
                                   {row[col]}
                                 </Badge>
                               ) : (
-                                String(row[col])
+                                String(row[col] ?? '-')
                               )}
                             </TableCell>
                           ))}
