@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { CheckSquare, CheckCircle, XCircle, MessageSquare, Search, AlertTriangle } from 'lucide-react';
+import { CheckSquare, CheckCircle, XCircle, MessageSquare, Search, AlertTriangle, Mail } from 'lucide-react';
 
 interface PendingRequest {
   id: string;
@@ -38,6 +38,7 @@ export default function Approvals() {
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [comments, setComments] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [sendEmail, setSendEmail] = useState(true);
   
   // Search and filter states
   const [search, setSearch] = useState('');
@@ -93,6 +94,30 @@ export default function Approvals() {
   // Get user's own pending requests count
   const ownPendingRequests = requests.filter(r => r.requester_id === user?.id);
 
+  const sendNotificationEmail = async (request: PendingRequest, status: 'approved' | 'rejected', comments: string) => {
+    if (!request.profiles?.email) return;
+    
+    try {
+      const response = await supabase.functions.invoke('send-request-notification', {
+        body: {
+          to: request.profiles.email,
+          recipientName: request.profiles.full_name || 'User',
+          deviceType: request.device_type,
+          status,
+          comments: comments || undefined,
+        },
+      });
+      
+      if (response.error) {
+        console.error('Email notification error:', response.error);
+      } else {
+        console.log('Email notification sent successfully');
+      }
+    } catch (error) {
+      console.error('Failed to send email notification:', error);
+    }
+  };
+
   const handleAction = async () => {
     if (!selectedRequest || !action) return;
 
@@ -122,7 +147,14 @@ export default function Approvals() {
         related_request_id: selectedRequest.id,
       });
 
-      toast({ title: `Request ${newStatus}!` });
+      // Send email notification if enabled
+      if (sendEmail) {
+        await sendNotificationEmail(selectedRequest, newStatus, comments);
+        toast({ title: `Request ${newStatus}!`, description: 'Email notification sent to requester.' });
+      } else {
+        toast({ title: `Request ${newStatus}!` });
+      }
+
       fetchPendingRequests();
     }
 
@@ -289,6 +321,7 @@ export default function Approvals() {
                 <div className="p-4 rounded-lg bg-muted/50">
                   <p><strong>Device:</strong> {selectedRequest.device_type}</p>
                   <p><strong>Requester:</strong> {selectedRequest.profiles?.full_name}</p>
+                  <p><strong>Email:</strong> {selectedRequest.profiles?.email}</p>
                   <p><strong>Purpose:</strong> {selectedRequest.purpose}</p>
                 </div>
 
@@ -303,6 +336,20 @@ export default function Approvals() {
                     onChange={(e) => setComments(e.target.value)}
                     rows={3}
                   />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="sendEmail"
+                    checked={sendEmail}
+                    onChange={(e) => setSendEmail(e.target.checked)}
+                    className="rounded border-input"
+                  />
+                  <label htmlFor="sendEmail" className="text-sm flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    Send email notification to requester
+                  </label>
                 </div>
               </div>
             )}

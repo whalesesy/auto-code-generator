@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome } from 'lucide-react';
+import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome, KeyRound } from 'lucide-react';
 import { z } from 'zod';
 
 const passwordSchema = z.string()
@@ -24,19 +24,26 @@ const emailSchema = z.string().email('Invalid email address');
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('login');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [isResetMode, setIsResetMode] = useState(false);
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (user) {
       navigate('/dashboard');
     }
-  }, [user, navigate]);
+    // Check if this is a password reset callback
+    if (searchParams.get('tab') === 'reset') {
+      setIsResetMode(true);
+    }
+  }, [user, navigate, searchParams]);
 
   const passwordChecks = {
     length: password.length >= 8,
@@ -44,6 +51,14 @@ export default function Auth() {
     lowercase: /[a-z]/.test(password),
     number: /[0-9]/.test(password),
     special: /[^A-Za-z0-9]/.test(password),
+  };
+
+  const newPasswordChecks = {
+    length: newPassword.length >= 8,
+    uppercase: /[A-Z]/.test(newPassword),
+    lowercase: /[a-z]/.test(newPassword),
+    number: /[0-9]/.test(newPassword),
+    special: /[^A-Za-z0-9]/.test(newPassword),
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -129,6 +144,31 @@ export default function Auth() {
     }
   };
 
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      passwordSchema.parse(newPassword);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        toast({ title: 'Validation error', description: err.errors[0].message, variant: 'destructive' });
+      }
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Password updated!', description: 'You can now login with your new password.' });
+      setIsResetMode(false);
+      navigate('/auth');
+    }
+  };
+
   const handleDemoLogin = async (role: 'admin' | 'approver' | 'staff') => {
     const demoCredentials = {
       admin: { email: 'admin@demo.com', password: 'Demo@123456' },
@@ -163,8 +203,8 @@ export default function Auth() {
 
     if (error) {
       toast({ 
-        title: 'Google sign-in failed', 
-        description: error.message,
+        title: 'Google sign-in not configured', 
+        description: 'Please configure Google OAuth in your backend settings.',
         variant: 'destructive' 
       });
     }
@@ -183,26 +223,29 @@ export default function Auth() {
 
     if (error) {
       toast({ 
-        title: 'Microsoft sign-in failed', 
-        description: error.message,
+        title: 'Microsoft sign-in not configured', 
+        description: 'Please configure Microsoft OAuth in your backend settings.',
         variant: 'destructive' 
       });
     }
   };
 
-  const PasswordStrength = () => (
-    <div className="space-y-2 mt-2">
+  const PasswordStrength = ({ checks }: { checks: typeof passwordChecks }) => (
+    <div className="space-y-2 mt-2 animate-fade-in">
       <p className="text-sm text-muted-foreground">Password strength:</p>
       <div className="grid grid-cols-2 gap-1 text-xs">
         {Object.entries({
-          '8+ characters': passwordChecks.length,
-          'Uppercase letter': passwordChecks.uppercase,
-          'Lowercase letter': passwordChecks.lowercase,
-          'Number': passwordChecks.number,
-          'Special character': passwordChecks.special,
+          '8+ characters': checks.length,
+          'Uppercase letter': checks.uppercase,
+          'Lowercase letter': checks.lowercase,
+          'Number': checks.number,
+          'Special character': checks.special,
         }).map(([label, valid]) => (
-          <div key={label} className={`flex items-center gap-1 ${valid ? 'text-green-600' : 'text-muted-foreground'}`}>
-            {valid ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+          <div 
+            key={label} 
+            className={`flex items-center gap-1 transition-colors duration-300 ${valid ? 'text-green-600' : 'text-muted-foreground'}`}
+          >
+            {valid ? <Check className="h-3 w-3 animate-scale-in" /> : <X className="h-3 w-3" />}
             {label}
           </div>
         ))}
@@ -210,21 +253,80 @@ export default function Auth() {
     </div>
   );
 
+  // Password Reset Mode
+  if (isResetMode) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        </div>
+        <Card className="w-full max-w-md animate-scale-in relative z-10 shadow-xl">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 rounded-xl bg-primary/10 animate-fade-in">
+                <KeyRound className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl">Set New Password</CardTitle>
+            <CardDescription>Enter your new password below</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handlePasswordReset} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <div className="relative">
+                  <Input
+                    id="newPassword"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <PasswordStrength checks={newPasswordChecks} />
+              </div>
+              <Button type="submit" className="w-full transition-transform hover:scale-[1.02]" disabled={loading}>
+                {loading ? 'Updating...' : 'Update Password'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Forgot Password Mode
   if (showForgotPassword) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        </div>
+        <Card className="w-full max-w-md animate-scale-in relative z-10 shadow-xl">
+          <CardHeader className="text-center relative">
             <Button 
               variant="ghost" 
-              className="absolute left-4 top-4" 
+              className="absolute left-4 top-4 transition-transform hover:scale-105" 
               onClick={() => setShowForgotPassword(false)}
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
             <div className="flex justify-center mb-4 pt-8">
-              <div className="p-3 rounded-xl bg-primary/10">
+              <div className="p-3 rounded-xl bg-primary/10 animate-fade-in">
                 <Monitor className="h-8 w-8 text-primary" />
               </div>
             </div>
@@ -242,9 +344,10 @@ export default function Auth() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full transition-transform hover:scale-[1.02]" disabled={loading}>
                 {loading ? 'Sending...' : 'Send Reset Link'}
               </Button>
             </form>
@@ -255,33 +358,40 @@ export default function Auth() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4 overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 right-1/3 w-48 h-48 bg-primary/8 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
+      
+      <Card className="w-full max-w-md animate-scale-in relative z-10 shadow-xl border-primary/10">
+        <CardHeader className="text-center relative">
           <Button 
             variant="ghost" 
-            className="absolute left-4 top-4" 
+            className="absolute left-4 top-4 transition-all hover:scale-105 hover:bg-primary/10" 
             onClick={() => navigate('/')}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Home
           </Button>
           <div className="flex justify-center mb-4 pt-8">
-            <div className="p-3 rounded-xl bg-primary/10">
+            <div className="p-3 rounded-xl bg-primary/10 animate-fade-in transition-transform hover:scale-110 duration-300">
               <Monitor className="h-8 w-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl">ICT Device Manager</CardTitle>
-          <CardDescription>Sign in to manage device requests</CardDescription>
+          <CardTitle className="text-2xl animate-fade-in" style={{ animationDelay: '0.1s' }}>ICT Device Manager</CardTitle>
+          <CardDescription className="animate-fade-in" style={{ animationDelay: '0.2s' }}>Sign in to manage device requests</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="animate-fade-in" style={{ animationDelay: '0.3s' }}>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsTrigger value="login" className="transition-all data-[state=active]:shadow-md">Login</TabsTrigger>
+              <TabsTrigger value="signup" className="transition-all data-[state=active]:shadow-md">Sign Up</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="login">
+            <TabsContent value="login" className="animate-fade-in">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
@@ -292,6 +402,7 @@ export default function Auth() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
@@ -300,7 +411,7 @@ export default function Auth() {
                     <Button 
                       type="button" 
                       variant="link" 
-                      className="px-0 h-auto text-xs"
+                      className="px-0 h-auto text-xs hover:text-primary transition-colors"
                       onClick={() => setShowForgotPassword(true)}
                     >
                       Forgot password?
@@ -314,19 +425,20 @@ export default function Auth() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
+                      className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="absolute right-0 top-0 h-full"
+                      className="absolute right-0 top-0 h-full hover:bg-transparent"
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full transition-all hover:scale-[1.02] hover:shadow-lg" disabled={loading}>
                   {loading ? 'Signing in...' : 'Sign In'}
                 </Button>
               </form>
@@ -342,11 +454,21 @@ export default function Auth() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <Button variant="outline" onClick={handleGoogleSignIn} disabled={loading} className="w-full">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleGoogleSignIn} 
+                    disabled={loading} 
+                    className="w-full transition-all hover:scale-[1.02] hover:border-primary/50"
+                  >
                     <Chrome className="h-4 w-4 mr-2" />
                     Google
                   </Button>
-                  <Button variant="outline" onClick={handleMicrosoftSignIn} disabled={loading} className="w-full">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleMicrosoftSignIn} 
+                    disabled={loading} 
+                    className="w-full transition-all hover:scale-[1.02] hover:border-primary/50"
+                  >
                     <svg className="h-4 w-4 mr-2" viewBox="0 0 21 21" fill="none">
                       <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
                       <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
@@ -360,13 +482,31 @@ export default function Auth() {
                 <div>
                   <p className="text-sm text-muted-foreground text-center mb-3">Quick demo access:</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <Button variant="outline" size="sm" onClick={() => handleDemoLogin('staff')} disabled={loading}>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleDemoLogin('staff')} 
+                      disabled={loading}
+                      className="transition-all hover:scale-[1.02] hover:border-primary/50"
+                    >
                       Staff
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDemoLogin('approver')} disabled={loading}>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleDemoLogin('approver')} 
+                      disabled={loading}
+                      className="transition-all hover:scale-[1.02] hover:border-primary/50"
+                    >
                       Approver
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDemoLogin('admin')} disabled={loading}>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleDemoLogin('admin')} 
+                      disabled={loading}
+                      className="transition-all hover:scale-[1.02] hover:border-primary/50"
+                    >
                       Admin
                     </Button>
                   </div>
@@ -374,7 +514,7 @@ export default function Auth() {
               </div>
             </TabsContent>
 
-            <TabsContent value="signup">
+            <TabsContent value="signup" className="animate-fade-in">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="fullName">Full Name</Label>
@@ -385,6 +525,7 @@ export default function Auth() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     required
+                    className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
@@ -396,6 +537,7 @@ export default function Auth() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
@@ -408,20 +550,21 @@ export default function Auth() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
+                      className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="absolute right-0 top-0 h-full"
+                      className="absolute right-0 top-0 h-full hover:bg-transparent"
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
-                  <PasswordStrength />
+                  <PasswordStrength checks={passwordChecks} />
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full transition-all hover:scale-[1.02] hover:shadow-lg" disabled={loading}>
                   {loading ? 'Creating account...' : 'Create Account'}
                 </Button>
               </form>
@@ -437,11 +580,21 @@ export default function Auth() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <Button variant="outline" onClick={handleGoogleSignIn} disabled={loading} className="w-full">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleGoogleSignIn} 
+                    disabled={loading} 
+                    className="w-full transition-all hover:scale-[1.02] hover:border-primary/50"
+                  >
                     <Chrome className="h-4 w-4 mr-2" />
                     Google
                   </Button>
-                  <Button variant="outline" onClick={handleMicrosoftSignIn} disabled={loading} className="w-full">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleMicrosoftSignIn} 
+                    disabled={loading} 
+                    className="w-full transition-all hover:scale-[1.02] hover:border-primary/50"
+                  >
                     <svg className="h-4 w-4 mr-2" viewBox="0 0 21 21" fill="none">
                       <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
                       <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
@@ -455,9 +608,9 @@ export default function Auth() {
 
               <p className="text-xs text-muted-foreground text-center mt-4">
                 By signing up, you agree to our{' '}
-                <Link to="/terms" className="text-primary hover:underline">Terms</Link>
+                <Link to="/terms" className="text-primary hover:underline transition-colors">Terms</Link>
                 {' '}and{' '}
-                <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>
+                <Link to="/privacy" className="text-primary hover:underline transition-colors">Privacy Policy</Link>
               </p>
             </TabsContent>
           </Tabs>

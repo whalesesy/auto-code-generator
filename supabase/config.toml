@@ -1,1 +1,7 @@
 project_id = "xrkefhwtboyezavumlle"
+
+[functions.create-demo-users]
+verify_jwt = false
+
+[functions.send-request-notification]
+verify_jwt = false
