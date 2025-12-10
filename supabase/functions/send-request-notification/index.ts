@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
@@ -6,6 +7,17 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// HTML escape function to prevent injection
+function escapeHtml(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 interface NotificationRequest {
   to: string;
@@ -21,9 +33,55 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
+    // Verify the caller is an authorized admin or approver
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error("No authorization header provided");
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    // Get the authenticated user
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError || !user) {
+      console.error("Failed to get user:", userError);
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // Check if user has admin or approver role
+    const { data: roleData, error: roleError } = await supabaseClient
+      .rpc('has_role', { _user_id: user.id, _role: 'admin' });
+    
+    const { data: approverData } = await supabaseClient
+      .rpc('has_role', { _user_id: user.id, _role: 'approver' });
+
+    if (roleError || (!roleData && !approverData)) {
+      console.error("User does not have required role:", roleError);
+      return new Response(
+        JSON.stringify({ error: "Forbidden: Requires admin or approver role" }),
+        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
     const { to, recipientName, deviceType, status, comments }: NotificationRequest = await req.json();
 
-    console.log(`Sending ${status} notification to ${to} for device ${deviceType}`);
+    // Sanitize all user inputs
+    const safeRecipientName = escapeHtml(recipientName);
+    const safeDeviceType = escapeHtml(deviceType);
+    const safeComments = escapeHtml(comments || '');
+
+    console.log(`Sending ${status} notification to ${to} for device ${safeDeviceType}`);
 
     const statusColor = status === 'approved' ? '#22c55e' : '#ef4444';
     const statusText = status === 'approved' ? 'Approved' : 'Rejected';
@@ -45,20 +103,20 @@ const handler = async (req: Request): Promise<Response> => {
           
           <div style="background: white; padding: 30px; border-radius: 0 0 12px 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
             <p style="color: #374151; font-size: 16px; margin: 0 0 20px 0;">
-              Hello <strong>${recipientName}</strong>,
+              Hello <strong>${safeRecipientName}</strong>,
             </p>
             
             <div style="background: ${statusColor}15; border-left: 4px solid ${statusColor}; padding: 15px; border-radius: 0 8px 8px 0; margin: 20px 0;">
               <p style="margin: 0; color: #374151; font-size: 16px;">
-                Your request for <strong>${deviceType}</strong> has been 
+                Your request for <strong>${safeDeviceType}</strong> has been 
                 <span style="color: ${statusColor}; font-weight: bold;">${statusText}</span>
               </p>
             </div>
             
-            ${comments ? `
+            ${safeComments ? `
             <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
               <p style="margin: 0 0 5px 0; color: #6b7280; font-size: 14px; font-weight: 600;">Comments from approver:</p>
-              <p style="margin: 0; color: #374151; font-size: 14px;">${comments}</p>
+              <p style="margin: 0; color: #374151; font-size: 14px;">${safeComments}</p>
             </div>
             ` : ''}
             
