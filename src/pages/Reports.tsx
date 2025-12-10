@@ -7,12 +7,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { exportToCSV } from '@/lib/export';
+import { exportToCSV, exportToPDF } from '@/lib/export';
 import { QueryFiltersSidebar, QueryFilters, defaultFilters, applyQueryFilters } from '@/components/filters/QueryFiltersSidebar';
+import { 
+  Pagination, 
+  PaginationContent, 
+  PaginationItem, 
+  PaginationLink, 
+  PaginationNext, 
+  PaginationPrevious,
+  PaginationEllipsis 
+} from '@/components/ui/pagination';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   BarChart3, Download, FileText, Package, Users, ClipboardList, Printer, 
   TrendingUp, TrendingDown, ArrowLeft, MessageSquare, Activity, PieChart, Calendar,
-  PanelLeftClose, PanelLeft, Filter
+  PanelLeftClose, PanelLeft, Filter, FileDown
 } from 'lucide-react';
 
 interface ReportData {
@@ -43,6 +53,22 @@ export default function Reports() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [filters, setFilters] = useState<QueryFilters>(defaultFilters);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  
+  // Calculate pagination
+  const totalItems = reportData.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = reportData.slice(startIndex, endIndex);
+  
+  // Reset page when report data changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [reportData]);
 
   useEffect(() => {
     fetchStats();
@@ -98,6 +124,9 @@ export default function Reports() {
         quantity: r.quantity,
         purpose: r.purpose,
         status: r.status.toUpperCase(),
+        pickup_location: r.pickup_location || '-',
+        pickup_time: r.pickup_time ? new Date(r.pickup_time).toLocaleString() : '-',
+        expected_return_date: r.expected_return_date ? new Date(r.expected_return_date).toLocaleDateString() : '-',
         created_at: r.created_at,
         date: new Date(r.created_at).toLocaleDateString(),
       }));
@@ -305,6 +334,8 @@ export default function Reports() {
         purpose: r.purpose,
         status: r.status,
         needed_date: new Date(r.needed_date).toLocaleDateString(),
+        pickup_location: r.pickup_location || '-',
+        expected_return_date: r.expected_return_date ? new Date(r.expected_return_date).toLocaleDateString() : '-',
         submitted: new Date(r.created_at).toLocaleDateString(),
       }));
       setReportData(formatted);
@@ -418,6 +449,12 @@ export default function Reports() {
   const handleExport = () => {
     if (reportData.length > 0) {
       exportToCSV(reportData, reportType.toLowerCase().replace(/ /g, '-'));
+    }
+  };
+
+  const handleExportPDF = () => {
+    if (reportData.length > 0) {
+      exportToPDF(reportData, reportType.toLowerCase().replace(/ /g, '-'), reportType);
     }
   };
 
@@ -648,7 +685,7 @@ export default function Reports() {
                   </CardTitle>
                   <CardDescription>{reportData.length} records found</CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" onClick={clearReport}>
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back
@@ -657,6 +694,10 @@ export default function Reports() {
                     <Download className="h-4 w-4 mr-2" />
                     Export CSV
                   </Button>
+                  <Button variant="outline" onClick={handleExportPDF} disabled={reportData.length === 0}>
+                    <FileDown className="h-4 w-4 mr-2" />
+                    Export PDF
+                  </Button>
                   <Button variant="outline" onClick={handlePrint} disabled={reportData.length === 0}>
                     <Printer className="h-4 w-4 mr-2" />
                     Print
@@ -664,44 +705,127 @@ export default function Reports() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               {loadingReport ? (
                 <p className="text-center py-8 text-muted-foreground">Generating report...</p>
               ) : reportData.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No data found for this report</p>
               ) : (
-                <div className="overflow-x-auto print:overflow-visible">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {getReportColumns().map(col => (
-                          <TableHead key={col} className="capitalize">{col.replace(/_/g, ' ')}</TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reportData.map(row => (
-                        <TableRow key={row.id}>
+                <>
+                  {/* Pagination Controls - Top */}
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Show</span>
+                      <Select value={String(itemsPerPage)} onValueChange={(v) => { setItemsPerPage(Number(v)); setCurrentPage(1); }}>
+                        <SelectTrigger className="w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10</SelectItem>
+                          <SelectItem value="25">25</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                          <SelectItem value="100">100</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-sm text-muted-foreground">per page</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      Showing {startIndex + 1}-{Math.min(endIndex, totalItems)} of {totalItems} records
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto print:overflow-visible">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
                           {getReportColumns().map(col => (
-                            <TableCell key={col}>
-                              {col === 'status' ? (
-                                <Badge variant={
-                                  row[col] === 'approved' || row[col] === 'APPROVED' ? 'default' : 
-                                  row[col] === 'rejected' || row[col] === 'REJECTED' ? 'destructive' : 
-                                  'secondary'
-                                }>
-                                  {row[col]}
-                                </Badge>
-                              ) : (
-                                String(row[col] ?? '-')
-                              )}
-                            </TableCell>
+                            <TableHead key={col} className="capitalize">{col.replace(/_/g, ' ')}</TableHead>
                           ))}
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedData.map(row => (
+                          <TableRow key={row.id}>
+                            {getReportColumns().map(col => (
+                              <TableCell key={col}>
+                                {col === 'status' ? (
+                                  <Badge variant={
+                                    row[col] === 'approved' || row[col] === 'APPROVED' || row[col] === 'ISSUED' ? 'default' : 
+                                    row[col] === 'rejected' || row[col] === 'REJECTED' ? 'destructive' : 
+                                    'secondary'
+                                  }>
+                                    {row[col]}
+                                  </Badge>
+                                ) : (
+                                  String(row[col] ?? '-')
+                                )}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Pagination Controls - Bottom */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center">
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious 
+                              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                              className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                            />
+                          </PaginationItem>
+                          
+                          {/* First page */}
+                          {currentPage > 3 && (
+                            <>
+                              <PaginationItem>
+                                <PaginationLink onClick={() => setCurrentPage(1)} className="cursor-pointer">1</PaginationLink>
+                              </PaginationItem>
+                              {currentPage > 4 && <PaginationEllipsis />}
+                            </>
+                          )}
+                          
+                          {/* Pages around current */}
+                          {Array.from({ length: totalPages }, (_, i) => i + 1)
+                            .filter(page => page >= currentPage - 2 && page <= currentPage + 2)
+                            .map(page => (
+                              <PaginationItem key={page}>
+                                <PaginationLink
+                                  onClick={() => setCurrentPage(page)}
+                                  isActive={currentPage === page}
+                                  className="cursor-pointer"
+                                >
+                                  {page}
+                                </PaginationLink>
+                              </PaginationItem>
+                            ))
+                          }
+                          
+                          {/* Last page */}
+                          {currentPage < totalPages - 2 && (
+                            <>
+                              {currentPage < totalPages - 3 && <PaginationEllipsis />}
+                              <PaginationItem>
+                                <PaginationLink onClick={() => setCurrentPage(totalPages)} className="cursor-pointer">{totalPages}</PaginationLink>
+                              </PaginationItem>
+                            </>
+                          )}
+                          
+                          <PaginationItem>
+                            <PaginationNext 
+                              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                              className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

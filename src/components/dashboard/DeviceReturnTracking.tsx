@@ -33,11 +33,11 @@ export function DeviceReturnTracking() {
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    fetchIssuedDevices();
-  }, []);
+    if (user) fetchIssuedDevices();
+  }, [user, role]);
 
   const fetchIssuedDevices = async () => {
-    const { data, error } = await supabase
+    let query = supabase
       .from('device_requests')
       .select(`
         id, device_type, device_model, quantity, issued_at, expected_return_date, duration, requester_id,
@@ -47,6 +47,12 @@ export function DeviceReturnTracking() {
       .eq('status', 'issued')
       .order('expected_return_date', { ascending: true });
 
+    // Filter by user if staff role
+    if (role === 'staff' && user?.id) {
+      query = query.eq('requester_id', user.id);
+    }
+
+    const { data, error } = await query;
     if (error) console.error('Error fetching issued devices:', error);
     if (data) setIssuedRequests(data as any);
     setLoading(false);
@@ -135,9 +141,8 @@ export function DeviceReturnTracking() {
     );
   }
 
-  if (role !== 'admin' && role !== 'approver') {
-    return null;
-  }
+  // Show for all roles - staff sees their own, admins/approvers see all and can mark as returned
+  const canMarkReturned = role === 'admin' || role === 'approver';
 
   return (
     <>
@@ -200,14 +205,16 @@ export function DeviceReturnTracking() {
                           <Badge variant={daysInfo.variant}>{daysInfo.text}</Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setSelectedRequest(request)}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Mark Returned
-                          </Button>
+                          {canMarkReturned && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSelectedRequest(request)}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Mark Returned
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

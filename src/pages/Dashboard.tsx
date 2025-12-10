@@ -219,15 +219,11 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Overdue Returns Widget - Admin/Approver only */}
-        {(role === 'admin' || role === 'approver') && (
-          <OverdueReturnsWidget />
-        )}
+        {/* Overdue Returns Widget - All roles can view their relevant returns */}
+        <OverdueReturnsWidget />
 
-        {/* Device Return Tracking - Admin/Approver only */}
-        {(role === 'admin' || role === 'approver') && (
-          <DeviceReturnTracking />
-        )}
+        {/* Device Return Tracking - All roles can view their issued devices */}
+        <DeviceReturnTracking />
 
         {/* Recent Activity & FAQ */}
         <div className="grid gap-4 md:grid-cols-2">
