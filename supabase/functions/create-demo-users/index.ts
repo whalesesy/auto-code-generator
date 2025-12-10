@@ -7,10 +7,18 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Generate secure random password
+function generateSecurePassword(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => chars[byte % chars.length]).join('');
+}
+
 const DEMO_USERS = [
-  { email: "admin@demo.com", password: "Demo@123456", fullName: "Demo Admin", role: "admin" },
-  { email: "approver@demo.com", password: "Demo@123456", fullName: "Demo Approver", role: "approver" },
-  { email: "staff@demo.com", password: "Demo@123456", fullName: "Demo Staff", role: "staff" },
+  { email: "admin@demo.com", fullName: "Demo Admin", role: "admin" },
+  { email: "approver@demo.com", fullName: "Demo Approver", role: "approver" },
+  { email: "staff@demo.com", fullName: "Demo Staff", role: "staff" },
 ];
 
 serve(async (req) => {
@@ -19,6 +27,50 @@ serve(async (req) => {
   }
 
   try {
+    // Verify JWT and check if user is admin
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.log("No authorization header provided");
+      return new Response(JSON.stringify({ success: false, error: "Unauthorized - no token provided" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    // Get the user from the JWT
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError || !user) {
+      console.log("Failed to get user from token:", userError?.message);
+      return new Response(JSON.stringify({ success: false, error: "Unauthorized - invalid token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Check if user is admin
+    const { data: roleData, error: roleError } = await supabaseClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+
+    if (roleError || roleData?.role !== "admin") {
+      console.log("User is not admin:", user.id, roleData?.role);
+      return new Response(JSON.stringify({ success: false, error: "Forbidden - admin access required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Admin user verified, creating demo users...");
+
+    // Use service role for admin operations
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -37,16 +89,20 @@ serve(async (req) => {
         continue;
       }
 
+      // Generate secure random password
+      const securePassword = generateSecurePassword();
+
       // Create user
-      const { data: userData, error: userError } = await supabaseAdmin.auth.admin.createUser({
+      const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: demoUser.email,
-        password: demoUser.password,
+        password: securePassword,
         email_confirm: true,
         user_metadata: { full_name: demoUser.fullName }
       });
 
-      if (userError) {
-        results.push({ email: demoUser.email, status: "error", error: userError.message });
+      if (createError) {
+        console.log("Error creating user:", demoUser.email, createError.message);
+        results.push({ email: demoUser.email, status: "error", error: createError.message });
         continue;
       }
 
@@ -58,7 +114,13 @@ serve(async (req) => {
           .eq("user_id", userData.user.id);
       }
 
-      results.push({ email: demoUser.email, status: "created", role: demoUser.role });
+      console.log("Created demo user:", demoUser.email, demoUser.role);
+      results.push({ 
+        email: demoUser.email, 
+        status: "created", 
+        role: demoUser.role,
+        temporaryPassword: securePassword // Return password so admin can share it securely
+      });
     }
 
     return new Response(JSON.stringify({ success: true, results }), {
@@ -66,6 +128,7 @@ serve(async (req) => {
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("Error in create-demo-users:", errorMessage);
     return new Response(JSON.stringify({ success: false, error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
