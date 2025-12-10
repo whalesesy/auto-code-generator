@@ -55,6 +55,10 @@ export default function Approvals() {
   const [processing, setProcessing] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
   
+  // Issue-specific fields
+  const [pickupLocation, setPickupLocation] = useState('ICT Office');
+  const [pickupTime, setPickupTime] = useState('');
+  
   // Sidebar filters
   const [showSidebar, setShowSidebar] = useState(true);
   const [filters, setFilters] = useState<QueryFilters>(defaultFilters);
@@ -235,6 +239,8 @@ export default function Approvals() {
     }
     if (action === 'issue') {
       updateData.issued_at = new Date().toISOString();
+      updateData.pickup_location = pickupLocation;
+      updateData.pickup_time = pickupTime ? new Date(pickupTime).toISOString() : new Date().toISOString();
     }
 
     const { error } = await supabase
@@ -249,15 +255,42 @@ export default function Approvals() {
       
       await supabase.from('notifications').insert({
         user_id: selectedRequest.requester_id,
-        title: `Request ${newStatus}`,
-        message: `Your request for ${selectedRequest.device_type} has been ${newStatus}.${comments ? ` Comment: ${comments}` : ''}`,
+        title: action === 'issue' ? 'Device Ready for Pickup!' : `Request ${newStatus}`,
+        message: action === 'issue' 
+          ? `Your ${selectedRequest.device_type} is ready for pickup at ${pickupLocation}. Please pick it up at your scheduled time.`
+          : `Your request for ${selectedRequest.device_type} has been ${newStatus}.${comments ? ` Comment: ${comments}` : ''}`,
         type: action === 'approve' || action === 'issue' ? 'success' : 'warning',
         related_request_id: selectedRequest.id,
       });
 
-      if (sendEmail) {
-        await sendNotificationEmail(selectedRequest, action === 'issue' ? 'approved' : newStatus as any, comments);
-        toast({ title: `Request ${newStatus}!`, description: 'Email notification sent.' });
+      if (sendEmail && selectedRequest.profiles?.email) {
+        if (action === 'issue') {
+          // Send device issued notification with pickup info
+          try {
+            await supabase.functions.invoke('send-device-issued-notification', {
+              body: {
+                to: selectedRequest.profiles.email,
+                recipientName: selectedRequest.profiles.full_name || 'User',
+                deviceType: selectedRequest.device_type,
+                deviceModel: selectedRequest.device_model,
+                quantity: selectedRequest.quantity,
+                ticketNumber: selectedRequest.request_tickets?.[0]?.ticket_number,
+                pickupLocation: pickupLocation,
+                pickupTime: pickupTime 
+                  ? new Date(pickupTime).toLocaleString() 
+                  : 'As soon as possible',
+                expectedReturnDate: selectedRequest.duration,
+              },
+            });
+            toast({ title: 'Device issued!', description: 'Pickup notification email sent.' });
+          } catch (emailError) {
+            console.error('Failed to send issued email:', emailError);
+            toast({ title: 'Device issued!', description: 'Email notification failed.' });
+          }
+        } else {
+          await sendNotificationEmail(selectedRequest, newStatus as any, comments);
+          toast({ title: `Request ${newStatus}!`, description: 'Email notification sent.' });
+        }
       } else {
         toast({ title: `Request ${newStatus}!` });
       }
@@ -270,6 +303,8 @@ export default function Approvals() {
     setSelectedRequest(null);
     setAction(null);
     setComments('');
+    setPickupLocation('ICT Office');
+    setPickupTime('');
     setProcessing(false);
   };
 
@@ -1030,6 +1065,28 @@ export default function Approvals() {
                 <p><strong>Quantity:</strong> {selectedRequest.quantity}</p>
                 <p><strong>Purpose:</strong> {selectedRequest.purpose}</p>
               </div>
+              
+              {action === 'issue' && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Pickup Location <span className="text-destructive">*</span></Label>
+                    <Input
+                      placeholder="e.g., ICT Office, Room 101"
+                      value={pickupLocation}
+                      onChange={(e) => setPickupLocation(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Pickup Time</Label>
+                    <Input
+                      type="datetime-local"
+                      value={pickupTime}
+                      onChange={(e) => setPickupTime(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+              
               <div className="space-y-2">
                 <Label>Comments {action === 'reject' && <span className="text-destructive">*</span>}</Label>
                 <Textarea

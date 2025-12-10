@@ -10,6 +10,8 @@ import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { ClipboardList, CheckCircle, XCircle, Package, Clock, TrendingUp } from 'lucide-react';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { useLowStockAlert } from '@/hooks/useLowStockAlert';
+import { OverdueReturnsWidget } from '@/components/dashboard/OverdueReturnsWidget';
+import { DeviceReturnTracking } from '@/components/dashboard/DeviceReturnTracking';
 
 interface Stats {
   pending: number;
@@ -216,6 +218,16 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Overdue Returns Widget - Admin/Approver only */}
+        {(role === 'admin' || role === 'approver') && (
+          <OverdueReturnsWidget />
+        )}
+
+        {/* Device Return Tracking - Admin/Approver only */}
+        {(role === 'admin' || role === 'approver') && (
+          <DeviceReturnTracking />
+        )}
 
         {/* Recent Activity & FAQ */}
         <div className="grid gap-4 md:grid-cols-2">

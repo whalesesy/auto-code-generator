@@ -25,9 +25,12 @@ export type Database = {
           device_model: string | null
           device_type: string
           duration: string
+          expected_return_date: string | null
           id: string
           issued_at: string | null
           needed_date: string
+          pickup_location: string | null
+          pickup_time: string | null
           purpose: string
           quantity: number
           requester_id: string
@@ -45,9 +48,12 @@ export type Database = {
           device_model?: string | null
           device_type: string
           duration: string
+          expected_return_date?: string | null
           id?: string
           issued_at?: string | null
           needed_date: string
+          pickup_location?: string | null
+          pickup_time?: string | null
           purpose: string
           quantity?: number
           requester_id: string
@@ -65,9 +71,12 @@ export type Database = {
           device_model?: string | null
           device_type?: string
           duration?: string
+          expected_return_date?: string | null
           id?: string
           issued_at?: string | null
           needed_date?: string
+          pickup_location?: string | null
+          pickup_time?: string | null
           purpose?: string
           quantity?: number
           requester_id?: string
