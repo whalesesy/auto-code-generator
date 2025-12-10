@@ -79,45 +79,48 @@ export default function Approvals() {
   }, []);
 
   const fetchPendingRequests = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('device_requests')
       .select(`
         *,
-        profiles!device_requests_requester_id_fkey (full_name, email, department),
+        profiles!device_requests_requester_id_profiles_fkey (full_name, email, department),
         request_tickets (ticket_number)
       `)
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
 
+    if (error) console.error('Error fetching pending requests:', error);
     if (data) setRequests(data as any);
     setLoading(false);
   };
 
   const fetchApprovedRequests = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('device_requests')
       .select(`
         *,
-        profiles!device_requests_requester_id_fkey (full_name, email, department),
+        profiles!device_requests_requester_id_profiles_fkey (full_name, email, department),
         request_tickets (ticket_number)
       `)
       .eq('status', 'approved')
       .order('approved_at', { ascending: false });
 
+    if (error) console.error('Error fetching approved requests:', error);
     if (data) setApprovedRequests(data as any);
   };
 
   const fetchIssuedRequests = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('device_requests')
       .select(`
         *,
-        profiles!device_requests_requester_id_fkey (full_name, email, department),
+        profiles!device_requests_requester_id_profiles_fkey (full_name, email, department),
         request_tickets (ticket_number)
       `)
       .eq('status', 'issued')
       .order('issued_at', { ascending: false });
 
+    if (error) console.error('Error fetching issued requests:', error);
     if (data) setIssuedRequests(data as any);
   };
 
@@ -330,7 +333,7 @@ export default function Approvals() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, department), request_tickets(ticket_number)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name, department), request_tickets(ticket_number)')
       .eq('status', 'pending');
     
     if (data) {
@@ -356,7 +359,7 @@ export default function Approvals() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, department), request_tickets(ticket_number)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name, department), request_tickets(ticket_number)')
       .in('status', ['approved', 'rejected'])
       .order('approved_at', { ascending: false });
     

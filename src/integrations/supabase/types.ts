@@ -83,6 +83,13 @@ export type Database = {
             referencedRelation: "devices"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "device_requests_requester_id_profiles_fkey"
+            columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
         ]
       }
       devices: {
@@ -161,7 +168,15 @@ export type Database = {
           sender_id?: string
           subject?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "feedback_sender_id_profiles_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
       }
       notifications: {
         Row: {
