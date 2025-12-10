@@ -16,12 +16,14 @@ import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { 
   CheckSquare, CheckCircle, XCircle, MessageSquare, Search, AlertTriangle, Mail, 
-  FileText, Download, Printer, BarChart3, Clock, ListChecks, Filter, PanelLeftClose, PanelLeft
+  FileText, Download, Printer, BarChart3, Clock, ListChecks, Filter, PanelLeftClose, PanelLeft,
+  Package, Eye
 } from 'lucide-react';
 import { exportToCSV } from '@/lib/export';
 import { QueryFiltersSidebar, QueryFilters, defaultFilters, applyQueryFilters } from '@/components/filters/QueryFiltersSidebar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-interface PendingRequest {
+interface DeviceRequest {
   id: string;
   device_category: string;
   device_type: string;
@@ -32,15 +34,21 @@ interface PendingRequest {
   duration: string;
   created_at: string;
   requester_id: string;
+  status: string;
+  approved_at: string | null;
+  issued_at: string | null;
+  approver_comments: string | null;
   profiles: { full_name: string; email: string; department: string | null } | null;
   request_tickets?: { ticket_number: string }[];
 }
 
 export default function Approvals() {
   const { user, role } = useAuth();
-  const [requests, setRequests] = useState<PendingRequest[]>([]);
+  const [requests, setRequests] = useState<DeviceRequest[]>([]);
+  const [issuedRequests, setIssuedRequests] = useState<DeviceRequest[]>([]);
+  const [activeTab, setActiveTab] = useState<'pending' | 'issued'>('pending');
   const [loading, setLoading] = useState(true);
-  const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<DeviceRequest | null>(null);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [comments, setComments] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -65,6 +73,7 @@ export default function Approvals() {
 
   useEffect(() => {
     fetchPendingRequests();
+    fetchIssuedRequests();
   }, []);
 
   const fetchPendingRequests = async () => {
@@ -80,6 +89,20 @@ export default function Approvals() {
 
     if (data) setRequests(data as any);
     setLoading(false);
+  };
+
+  const fetchIssuedRequests = async () => {
+    const { data } = await supabase
+      .from('device_requests')
+      .select(`
+        *,
+        profiles!device_requests_requester_id_fkey (full_name, email, department),
+        request_tickets (ticket_number)
+      `)
+      .eq('status', 'issued')
+      .order('issued_at', { ascending: false });
+
+    if (data) setIssuedRequests(data as any);
   };
 
   // Filter out user's own requests - cannot approve own (also enforced by RLS)
@@ -129,7 +152,7 @@ export default function Approvals() {
     setSelectedIds(newSet);
   };
 
-  const sendNotificationEmail = async (request: PendingRequest, status: 'approved' | 'rejected', comments: string) => {
+  const sendNotificationEmail = async (request: DeviceRequest, status: 'approved' | 'rejected', comments: string) => {
     if (!request.profiles?.email) return;
     
     try {
@@ -518,13 +541,35 @@ export default function Approvals() {
                 {showSidebar ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeft className="h-5 w-5" />}
               </Button>
               <div>
-                <h1 className="text-3xl font-bold">Pending Approvals</h1>
-                <p className="text-muted-foreground">Review and process device requests</p>
+                <h1 className="text-3xl font-bold">Request Management</h1>
+                <p className="text-muted-foreground">Review, approve, reject, and track device requests</p>
               </div>
             </div>
             <Button variant="outline" onClick={() => setShowReportSection(!showReportSection)}>
               <FileText className="h-4 w-4 mr-2" />
               {showReportSection ? 'Hide Reports' : 'Reports'}
+            </Button>
+          </div>
+
+          {/* Quick Action Buttons */}
+          <div className="flex flex-wrap gap-3">
+            <Button 
+              variant={activeTab === 'pending' ? 'default' : 'outline'} 
+              onClick={() => setActiveTab('pending')}
+              className="gap-2"
+            >
+              <Clock className="h-4 w-4" />
+              Pending Requests
+              <Badge variant="secondary" className="ml-1">{requests.filter(r => r.requester_id !== user?.id).length}</Badge>
+            </Button>
+            <Button 
+              variant={activeTab === 'issued' ? 'default' : 'outline'} 
+              onClick={() => setActiveTab('issued')}
+              className="gap-2"
+            >
+              <Package className="h-4 w-4" />
+              Issued Requests
+              <Badge variant="secondary" className="ml-1">{issuedRequests.length}</Badge>
             </Button>
           </div>
 
@@ -611,15 +656,15 @@ export default function Approvals() {
                 <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="h-5 w-5" />
                   <p className="text-sm font-medium">
-                    You have {ownPendingRequests.length} pending request(s) that require approval from another approver.
+                    You have {ownPendingRequests.length} pending request(s) that require approval from another approver. You cannot approve your own requests.
                   </p>
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Bulk Actions Bar */}
-          {selectedIds.size > 0 && (
+          {/* Bulk Actions Bar - Only show for pending tab */}
+          {activeTab === 'pending' && selectedIds.size > 0 && (
             <Card className="border-primary bg-primary/5">
               <CardContent className="pt-4">
                 <div className="flex items-center justify-between flex-wrap gap-4">
@@ -663,99 +708,174 @@ export default function Approvals() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CheckSquare className="h-5 w-5" />
-                Requests Awaiting Approval
-                <Badge variant="secondary" className="ml-2">{filteredRequests.length}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <p className="text-center py-8 text-muted-foreground">Loading...</p>
-              ) : filteredRequests.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[50px]">
-                          <Checkbox 
-                            checked={selectedIds.size === filteredRequests.length && filteredRequests.length > 0}
-                            onCheckedChange={toggleSelectAll}
-                          />
-                        </TableHead>
-                        <TableHead>Ticket</TableHead>
-                        <TableHead>Requester</TableHead>
-                        <TableHead>Device</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Needed By</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredRequests.map(request => (
-                        <TableRow key={request.id}>
-                          <TableCell>
+          {/* Pending Requests Tab */}
+          {activeTab === 'pending' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-amber-500" />
+                  Pending Requests
+                  <Badge variant="secondary" className="ml-2">{filteredRequests.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">Loading...</p>
+                ) : filteredRequests.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[50px]">
                             <Checkbox 
-                              checked={selectedIds.has(request.id)}
-                              onCheckedChange={() => toggleSelect(request.id)}
+                              checked={selectedIds.size === filteredRequests.length && filteredRequests.length > 0}
+                              onCheckedChange={toggleSelectAll}
                             />
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="font-mono text-xs">
-                              {request.request_tickets?.[0]?.ticket_number || request.ticket || '-'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{request.profiles?.full_name || 'Unknown'}</p>
-                              <p className="text-sm text-muted-foreground">{request.profiles?.department || 'No department'}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {request.device_type}
-                            {request.device_model && (
-                              <span className="text-muted-foreground text-sm block">{request.device_model}</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="capitalize">{request.device_category.replace('_', ' ')}</TableCell>
-                          <TableCell>{request.quantity}</TableCell>
-                          <TableCell>{format(new Date(request.needed_date), 'MMM d')}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="default"
-                                onClick={() => { setSelectedRequest(request); setAction('approve'); }}
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => { setSelectedRequest(request); setAction('reject'); }}
-                              >
-                                <XCircle className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
+                          </TableHead>
+                          <TableHead>Ticket</TableHead>
+                          <TableHead>Requester</TableHead>
+                          <TableHead>Device</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Needed By</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">
-                    {baseFilteredRequests.length > 0 ? 'No requests match your filters' : 'No pending requests to review'}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredRequests.map(request => (
+                          <TableRow key={request.id}>
+                            <TableCell>
+                              <Checkbox 
+                                checked={selectedIds.has(request.id)}
+                                onCheckedChange={() => toggleSelect(request.id)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {request.request_tickets?.[0]?.ticket_number || request.ticket || '-'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{request.profiles?.full_name || 'Unknown'}</p>
+                                <p className="text-sm text-muted-foreground">{request.profiles?.department || 'No department'}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {request.device_type}
+                              {request.device_model && (
+                                <span className="text-muted-foreground text-sm block">{request.device_model}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="capitalize">{request.device_category.replace('_', ' ')}</TableCell>
+                            <TableCell>{request.quantity}</TableCell>
+                            <TableCell>{format(new Date(request.needed_date), 'MMM d')}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={() => { setSelectedRequest(request); setAction('approve'); }}
+                                  title="Approve Request"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => { setSelectedRequest(request); setAction('reject'); }}
+                                  title="Reject Request"
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <CheckSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">
+                      {baseFilteredRequests.length > 0 ? 'No requests match your filters' : 'No pending requests to review'}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Issued Requests Tab */}
+          {activeTab === 'issued' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5 text-green-500" />
+                  Issued Requests
+                  <Badge variant="secondary" className="ml-2">{issuedRequests.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {issuedRequests.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Ticket</TableHead>
+                          <TableHead>Requester</TableHead>
+                          <TableHead>Device</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Issued At</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {issuedRequests.map(request => (
+                          <TableRow key={request.id}>
+                            <TableCell>
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {request.request_tickets?.[0]?.ticket_number || '-'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{request.profiles?.full_name || 'Unknown'}</p>
+                                <p className="text-sm text-muted-foreground">{request.profiles?.department || 'No department'}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {request.device_type}
+                              {request.device_model && (
+                                <span className="text-muted-foreground text-sm block">{request.device_model}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="capitalize">{request.device_category.replace('_', ' ')}</TableCell>
+                            <TableCell>{request.quantity}</TableCell>
+                            <TableCell>
+                              {request.issued_at ? format(new Date(request.issued_at), 'MMM d, yyyy') : '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="default" className="bg-green-500">Issued</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">No issued requests found</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
