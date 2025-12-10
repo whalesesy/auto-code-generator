@@ -29,27 +29,23 @@ export function OverdueReturnsWidget() {
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchOverdueReturns();
-  }, []);
+    if (user) fetchOverdueReturns();
+  }, [user, role]);
 
   const fetchOverdueReturns = async () => {
     const today = new Date().toISOString().split('T')[0];
     const nextWeek = new Date();
     nextWeek.setDate(nextWeek.getDate() + 7);
     
-    // Fetch overdue items (expected_return_date < today and not returned)
-    const { data: overdue, error: overdueError } = await supabase
+    // Build base query - staff sees only their devices, admins/approvers see all
+    let overdueQuery = supabase
       .from('device_requests')
       .select('id, device_type, device_model, quantity, issued_at, expected_return_date, duration, requester_id, profiles!device_requests_requester_id_profiles_fkey(full_name, email)')
       .eq('status', 'issued')
       .lt('expected_return_date', today)
       .order('expected_return_date', { ascending: true });
 
-    if (overdueError) console.error('Error fetching overdue:', overdueError);
-    if (overdue) setOverdueRequests(overdue as any);
-
-    // Fetch upcoming returns (within next 7 days)
-    const { data: upcoming, error: upcomingError } = await supabase
+    let upcomingQuery = supabase
       .from('device_requests')
       .select('id, device_type, device_model, quantity, issued_at, expected_return_date, duration, requester_id, profiles!device_requests_requester_id_profiles_fkey(full_name, email)')
       .eq('status', 'issued')
@@ -57,6 +53,17 @@ export function OverdueReturnsWidget() {
       .lte('expected_return_date', nextWeek.toISOString().split('T')[0])
       .order('expected_return_date', { ascending: true });
 
+    // Filter by user if staff role
+    if (role === 'staff' && user?.id) {
+      overdueQuery = overdueQuery.eq('requester_id', user.id);
+      upcomingQuery = upcomingQuery.eq('requester_id', user.id);
+    }
+
+    const { data: overdue, error: overdueError } = await overdueQuery;
+    if (overdueError) console.error('Error fetching overdue:', overdueError);
+    if (overdue) setOverdueRequests(overdue as any);
+
+    const { data: upcoming, error: upcomingError } = await upcomingQuery;
     if (upcomingError) console.error('Error fetching upcoming:', upcomingError);
     if (upcoming) setUpcomingReturns(upcoming as any);
     
@@ -124,9 +131,8 @@ export function OverdueReturnsWidget() {
     );
   }
 
-  if (role !== 'admin' && role !== 'approver') {
-    return null;
-  }
+  // Show for all roles - staff sees their own, admins/approvers see all
+  const canSendReminders = role === 'admin' || role === 'approver';
 
   const totalOverdue = overdueRequests.length;
   const totalUpcoming = upcomingReturns.length;
@@ -183,15 +189,17 @@ export function OverdueReturnsWidget() {
                         <Badge variant={daysInfo.variant}>{daysInfo.text}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => sendReminderNotification(request)}
-                          disabled={sendingReminder === request.id}
-                        >
-                          <Bell className="h-4 w-4 mr-1" />
-                          {sendingReminder === request.id ? 'Sending...' : 'Remind'}
-                        </Button>
+                        {canSendReminders && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => sendReminderNotification(request)}
+                            disabled={sendingReminder === request.id}
+                          >
+                            <Bell className="h-4 w-4 mr-1" />
+                            {sendingReminder === request.id ? 'Sending...' : 'Remind'}
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -214,15 +222,17 @@ export function OverdueReturnsWidget() {
                         <Badge variant={daysInfo.variant}>{daysInfo.text}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => sendReminderNotification(request)}
-                          disabled={sendingReminder === request.id}
-                        >
-                          <Bell className="h-4 w-4 mr-1" />
-                          {sendingReminder === request.id ? 'Sending...' : 'Remind'}
-                        </Button>
+                        {canSendReminders && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => sendReminderNotification(request)}
+                            disabled={sendingReminder === request.id}
+                          >
+                            <Bell className="h-4 w-4 mr-1" />
+                            {sendingReminder === request.id ? 'Sending...' : 'Remind'}
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
