@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome, KeyRound, Phone } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { z } from 'zod';
 
 const passwordSchema = z.string()
@@ -22,10 +23,14 @@ const passwordSchema = z.string()
 const emailSchema = z.string().email('Invalid email address');
 
 export default function Auth() {
-  const [email, setEmail] = useState('');
+const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('login');
@@ -101,8 +106,22 @@ export default function Auth() {
       return;
     }
 
+    // Validate phone if provided
+    if (phone && !/^\+?[1-9]\d{6,14}$/.test(phone.replace(/[\s-]/g, ''))) {
+      toast({ title: 'Invalid phone number', description: 'Please enter a valid phone number with country code.', variant: 'destructive' });
+      return;
+    }
+
     setLoading(true);
-    const { error } = await signUp(email, password, fullName);
+    const { error, data } = await supabase.auth.signUp({
+      email,
+      password,
+      phone: phone || undefined,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth`,
+        data: { full_name: fullName, phone }
+      }
+    });
     setLoading(false);
 
     if (error) {
@@ -112,8 +131,54 @@ export default function Auth() {
         toast({ title: 'Signup failed', description: error.message, variant: 'destructive' });
       }
     } else {
-      toast({ title: 'Account created!', description: 'You can now log in with your credentials.' });
+      toast({ 
+        title: 'Account created!', 
+        description: 'Please check your email to verify your account before logging in.' 
+      });
       setActiveTab('login');
+    }
+  };
+
+  const handleSendPhoneOtp = async () => {
+    if (!phone || !/^\+?[1-9]\d{6,14}$/.test(phone.replace(/[\s-]/g, ''))) {
+      toast({ title: 'Invalid phone number', description: 'Please enter a valid phone number with country code (e.g., +1234567890).', variant: 'destructive' });
+      return;
+    }
+    
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      phone,
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: 'Error sending code', description: error.message, variant: 'destructive' });
+    } else {
+      setShowPhoneVerification(true);
+      toast({ title: 'Verification code sent!', description: 'Check your phone for the SMS code.' });
+    }
+  };
+
+  const handleVerifyPhoneOtp = async () => {
+    if (!phoneOtp || phoneOtp.length !== 6) {
+      toast({ title: 'Invalid code', description: 'Please enter the 6-digit code.', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      phone,
+      token: phoneOtp,
+      type: 'sms',
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: 'Verification failed', description: error.message, variant: 'destructive' });
+    } else {
+      setPhoneVerified(true);
+      setShowPhoneVerification(false);
+      toast({ title: 'Phone verified!', description: 'Your phone number has been verified.' });
     }
   };
 
@@ -541,6 +606,55 @@ export default function Auth() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="signupPhone">Phone Number (Optional)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="signupPhone"
+                      type="tel"
+                      placeholder="+1234567890"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
+                      disabled={phoneVerified}
+                    />
+                    {phone && !phoneVerified && !showPhoneVerification && (
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleSendPhoneOtp}
+                        disabled={loading}
+                      >
+                        Verify
+                      </Button>
+                    )}
+                    {phoneVerified && (
+                      <Badge className="h-9 flex items-center bg-green-600">Verified</Badge>
+                    )}
+                  </div>
+                  {showPhoneVerification && (
+                    <div className="flex gap-2 mt-2 animate-fade-in">
+                      <Input
+                        type="text"
+                        placeholder="Enter 6-digit code"
+                        value={phoneOtp}
+                        onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        maxLength={6}
+                        className="transition-all duration-300"
+                      />
+                      <Button 
+                        type="button" 
+                        size="sm"
+                        onClick={handleVerifyPhoneOtp}
+                        disabled={loading || phoneOtp.length !== 6}
+                      >
+                        Confirm
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">Include country code for SMS verification</p>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="signupPassword">Password</Label>
                   <div className="relative">
                     <Input
@@ -567,6 +681,9 @@ export default function Auth() {
                 <Button type="submit" className="w-full transition-all hover:scale-[1.02] hover:shadow-lg" disabled={loading}>
                   {loading ? 'Creating account...' : 'Create Account'}
                 </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  📧 You will receive a confirmation email to verify your account.
+                </p>
               </form>
 
               <div className="mt-6 space-y-4">
