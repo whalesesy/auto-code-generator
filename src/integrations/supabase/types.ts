@@ -240,6 +240,44 @@ export type Database = {
         }
         Relationships: []
       }
+      request_tickets: {
+        Row: {
+          created_at: string
+          encrypted_data: string | null
+          id: string
+          request_id: string
+          status: string
+          ticket_number: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_data?: string | null
+          id?: string
+          request_id: string
+          status?: string
+          ticket_number: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_data?: string | null
+          id?: string
+          request_id?: string
+          status?: string
+          ticket_number?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_tickets_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "device_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stock_movements: {
         Row: {
           created_at: string
@@ -274,6 +312,50 @@ export type Database = {
             columns: ["device_id"]
             isOneToOne: false
             referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          details: string | null
+          encrypted_details: string | null
+          id: string
+          ip_address: string | null
+          performed_by: string
+          ticket_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: string | null
+          encrypted_details?: string | null
+          id?: string
+          ip_address?: string | null
+          performed_by: string
+          ticket_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: string | null
+          encrypted_details?: string | null
+          id?: string
+          ip_address?: string | null
+          performed_by?: string
+          ticket_id?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_audit_log_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "request_tickets"
             referencedColumns: ["id"]
           },
         ]
