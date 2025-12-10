@@ -83,7 +83,7 @@ export default function Reports() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, email, department)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name, email, department)')
       .order('created_at', { ascending: false });
     
     if (data) {
@@ -194,7 +194,7 @@ export default function Reports() {
     
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name)')
       .in('approver_id', adminIds)
       .order('approved_at', { ascending: false });
     
@@ -217,7 +217,7 @@ export default function Reports() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, department)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name, department)')
       .order('created_at', { ascending: false })
       .limit(100);
     
@@ -241,7 +241,7 @@ export default function Reports() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, email, department)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name, email, department)')
       .eq('status', 'pending');
     
     if (data) {
@@ -266,7 +266,7 @@ export default function Reports() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
-      .select('*, profiles!device_requests_requester_id_fkey(full_name, department)')
+      .select('*, profiles!device_requests_requester_id_profiles_fkey(full_name, department)')
       .in('status', ['approved', 'rejected'])
       .order('updated_at', { ascending: false });
     
@@ -397,7 +397,7 @@ export default function Reports() {
     setLoadingReport(true);
     const { data } = await supabase
       .from('feedback')
-      .select('*, profiles!feedback_sender_id_fkey(full_name)')
+      .select('*, profiles!feedback_sender_id_profiles_fkey(full_name)')
       .order('created_at', { ascending: false });
     
     if (data) {
