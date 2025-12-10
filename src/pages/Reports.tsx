@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { exportToCSV } from '@/lib/export';
+import { QueryFiltersSidebar, QueryFilters, defaultFilters, applyQueryFilters } from '@/components/filters/QueryFiltersSidebar';
 import { 
   BarChart3, Download, FileText, Package, Users, ClipboardList, Printer, 
-  TrendingUp, TrendingDown, ArrowLeft, MessageSquare, Activity, PieChart, Calendar
+  TrendingUp, TrendingDown, ArrowLeft, MessageSquare, Activity, PieChart, Calendar,
+  PanelLeftClose, PanelLeft, Filter
 } from 'lucide-react';
 
 interface ReportData {
@@ -39,6 +41,8 @@ export default function Reports() {
   const [reportType, setReportType] = useState<string>('');
   const [reportData, setReportData] = useState<ReportData[]>([]);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [filters, setFilters] = useState<QueryFilters>(defaultFilters);
 
   useEffect(() => {
     fetchStats();
@@ -90,12 +94,14 @@ export default function Reports() {
         department: (r as any).profiles?.department || '',
         device_type: r.device_type,
         category: r.device_category,
+        device_category: r.device_category,
         quantity: r.quantity,
         purpose: r.purpose,
-        status: r.status,
-        created_at: new Date(r.created_at).toLocaleDateString(),
+        status: r.status.toUpperCase(),
+        created_at: r.created_at,
+        date: new Date(r.created_at).toLocaleDateString(),
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' }));
       setReportType('Full System Report');
     }
     setLoadingReport(false);
@@ -115,16 +121,18 @@ export default function Reports() {
           id: d.id,
           name: d.name,
           category: d.category,
+          device_category: d.category,
           model: d.model || '-',
           serial_number: d.serial_number || '-',
-          status: d.status,
+          status: d.status.toUpperCase(),
           stock_in: stockIn,
           stock_out: stockOut,
           current_stock: stockIn - stockOut,
           location: d.location || '-',
+          created_at: d.created_at,
         };
       });
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' }));
       setReportType('Inventory Report');
     }
     setLoadingReport(false);
@@ -134,19 +142,22 @@ export default function Reports() {
     setLoadingReport(true);
     const { data: movements } = await supabase
       .from('stock_movements')
-      .select('*, devices(name)')
+      .select('*, devices(name, category)')
       .order('created_at', { ascending: false });
     
     if (movements) {
       const formatted = movements.map(m => ({
         id: m.id,
         device: (m as any).devices?.name || 'Unknown',
+        category: (m as any).devices?.category || '-',
+        device_category: (m as any).devices?.category || '-',
         type: m.movement_type === 'in' ? 'Stock In' : 'Stock Out',
         quantity: m.quantity,
         reason: m.reason || '-',
         date: new Date(m.created_at).toLocaleDateString(),
+        created_at: m.created_at,
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category' }));
       setReportType('Stock Movement Report');
     }
     setLoadingReport(false);
@@ -458,29 +469,53 @@ export default function Reports() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">Reports & Analytics</h1>
-            <p className="text-muted-foreground">Generate, download, and print system reports</p>
+      <div className="flex gap-6">
+        {/* Sidebar Filters */}
+        {showSidebar && (
+          <div className="w-64 shrink-0">
+            <QueryFiltersSidebar
+              filters={filters}
+              onFiltersChange={setFilters}
+              onReset={() => setFilters(defaultFilters)}
+            />
           </div>
-        </div>
+        )}
 
-        {/* Overview Stats - Admin/ICT Manager Only */}
-        {role === 'admin' && (
-          <>
-            <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  ICT Manager Dashboard - Project Overview
-                </CardTitle>
-                <CardDescription>Complete system overview with admin and user activities</CardDescription>
-              </CardHeader>
-            </Card>
+        <div className="flex-1 space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div>
+                <h1 className="text-3xl font-bold">Reports & Analytics</h1>
+                <p className="text-muted-foreground">Generate, download, and print system reports</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSidebar(!showSidebar)}
+              className="flex items-center gap-2"
+            >
+              {showSidebar ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              <Filter className="h-4 w-4" />
+              Filters
+            </Button>
+          </div>
+
+          {/* Overview Stats - Admin/ICT Manager Only */}
+          {role === 'admin' && (
+            <>
+              <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5" />
+                    ICT Manager Dashboard - Project Overview
+                  </CardTitle>
+                  <CardDescription>Complete system overview with admin and user activities</CardDescription>
+                </CardHeader>
+              </Card>
             
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
@@ -671,6 +706,7 @@ export default function Reports() {
             </CardContent>
           </Card>
         )}
+        </div>
       </div>
     </DashboardLayout>
   );
