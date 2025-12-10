@@ -45,11 +45,12 @@ interface DeviceRequest {
 export default function Approvals() {
   const { user, role } = useAuth();
   const [requests, setRequests] = useState<DeviceRequest[]>([]);
+  const [approvedRequests, setApprovedRequests] = useState<DeviceRequest[]>([]);
   const [issuedRequests, setIssuedRequests] = useState<DeviceRequest[]>([]);
-  const [activeTab, setActiveTab] = useState<'pending' | 'issued'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'issued'>('pending');
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<DeviceRequest | null>(null);
-  const [action, setAction] = useState<'approve' | 'reject' | null>(null);
+  const [action, setAction] = useState<'approve' | 'reject' | 'issue' | null>(null);
   const [comments, setComments] = useState('');
   const [processing, setProcessing] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
@@ -73,6 +74,7 @@ export default function Approvals() {
 
   useEffect(() => {
     fetchPendingRequests();
+    fetchApprovedRequests();
     fetchIssuedRequests();
   }, []);
 
@@ -89,6 +91,20 @@ export default function Approvals() {
 
     if (data) setRequests(data as any);
     setLoading(false);
+  };
+
+  const fetchApprovedRequests = async () => {
+    const { data } = await supabase
+      .from('device_requests')
+      .select(`
+        *,
+        profiles!device_requests_requester_id_fkey (full_name, email, department),
+        request_tickets (ticket_number)
+      `)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false });
+
+    if (data) setApprovedRequests(data as any);
   };
 
   const fetchIssuedRequests = async () => {
@@ -196,16 +212,31 @@ export default function Approvals() {
     if (!selectedRequest || !action) return;
     setProcessing(true);
 
-    const newStatus = action === 'approve' ? 'approved' : 'rejected';
+    let newStatus: string;
+    if (action === 'approve') {
+      newStatus = 'approved';
+    } else if (action === 'reject') {
+      newStatus = 'rejected';
+    } else {
+      newStatus = 'issued';
+    }
+
+    const updateData: any = {
+      status: newStatus,
+      approver_id: user?.id,
+      approver_comments: comments || null,
+    };
+
+    if (action === 'approve' || action === 'reject') {
+      updateData.approved_at = new Date().toISOString();
+    }
+    if (action === 'issue') {
+      updateData.issued_at = new Date().toISOString();
+    }
 
     const { error } = await supabase
       .from('device_requests')
-      .update({
-        status: newStatus,
-        approver_id: user?.id,
-        approver_comments: comments || null,
-        approved_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', selectedRequest.id);
 
     if (error) {
@@ -217,18 +248,20 @@ export default function Approvals() {
         user_id: selectedRequest.requester_id,
         title: `Request ${newStatus}`,
         message: `Your request for ${selectedRequest.device_type} has been ${newStatus}.${comments ? ` Comment: ${comments}` : ''}`,
-        type: action === 'approve' ? 'success' : 'warning',
+        type: action === 'approve' || action === 'issue' ? 'success' : 'warning',
         related_request_id: selectedRequest.id,
       });
 
       if (sendEmail) {
-        await sendNotificationEmail(selectedRequest, newStatus, comments);
+        await sendNotificationEmail(selectedRequest, action === 'issue' ? 'approved' : newStatus as any, comments);
         toast({ title: `Request ${newStatus}!`, description: 'Email notification sent.' });
       } else {
         toast({ title: `Request ${newStatus}!` });
       }
 
       fetchPendingRequests();
+      fetchApprovedRequests();
+      fetchIssuedRequests();
     }
 
     setSelectedRequest(null);
@@ -563,6 +596,15 @@ export default function Approvals() {
               <Badge variant="secondary" className="ml-1">{requests.filter(r => r.requester_id !== user?.id).length}</Badge>
             </Button>
             <Button 
+              variant={activeTab === 'approved' ? 'default' : 'outline'} 
+              onClick={() => setActiveTab('approved')}
+              className="gap-2"
+            >
+              <CheckCircle className="h-4 w-4" />
+              Approved (Awaiting Issue)
+              <Badge variant="secondary" className="ml-1">{approvedRequests.length}</Badge>
+            </Button>
+            <Button 
               variant={activeTab === 'issued' ? 'default' : 'outline'} 
               onClick={() => setActiveTab('issued')}
               className="gap-2"
@@ -809,7 +851,83 @@ export default function Approvals() {
             </Card>
           )}
 
-          {/* Issued Requests Tab */}
+          {/* Approved Requests Tab (Awaiting Issue) */}
+          {activeTab === 'approved' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-blue-500" />
+                  Approved Requests (Awaiting Issue)
+                  <Badge variant="secondary" className="ml-2">{approvedRequests.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {approvedRequests.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Ticket</TableHead>
+                          <TableHead>Requester</TableHead>
+                          <TableHead>Device</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Approved At</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {approvedRequests.map(request => (
+                          <TableRow key={request.id}>
+                            <TableCell>
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {request.request_tickets?.[0]?.ticket_number || '-'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{request.profiles?.full_name || 'Unknown'}</p>
+                                <p className="text-sm text-muted-foreground">{request.profiles?.department || 'No department'}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {request.device_type}
+                              {request.device_model && (
+                                <span className="text-muted-foreground text-sm block">{request.device_model}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="capitalize">{request.device_category.replace('_', ' ')}</TableCell>
+                            <TableCell>{request.quantity}</TableCell>
+                            <TableCell>
+                              {request.approved_at ? format(new Date(request.approved_at), 'MMM d, yyyy') : '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => { setSelectedRequest(request); setAction('issue'); }}
+                                title="Issue Device"
+                                className="bg-green-600 hover:bg-green-700"
+                              >
+                                <Package className="h-4 w-4 mr-1" />
+                                Issue
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <CheckCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">No approved requests awaiting issue</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {activeTab === 'issued' && (
             <Card>
               <CardHeader>
@@ -886,14 +1004,18 @@ export default function Approvals() {
             <DialogTitle className="flex items-center gap-2">
               {action === 'approve' ? (
                 <CheckCircle className="h-5 w-5 text-green-600" />
+              ) : action === 'issue' ? (
+                <Package className="h-5 w-5 text-green-600" />
               ) : (
                 <XCircle className="h-5 w-5 text-destructive" />
               )}
-              {action === 'approve' ? 'Approve' : 'Reject'} Request
+              {action === 'approve' ? 'Approve' : action === 'issue' ? 'Issue Device' : 'Reject'} Request
             </DialogTitle>
             <DialogDescription>
               {action === 'approve' 
                 ? 'This will approve the device request and notify the requester.'
+                : action === 'issue'
+                ? 'This will mark the device as issued to the requester.'
                 : 'This will reject the device request. Please provide a reason.'}
             </DialogDescription>
           </DialogHeader>
@@ -908,7 +1030,13 @@ export default function Approvals() {
               <div className="space-y-2">
                 <Label>Comments {action === 'reject' && <span className="text-destructive">*</span>}</Label>
                 <Textarea
-                  placeholder={action === 'approve' ? 'Optional comments...' : 'Please provide a reason for rejection...'}
+                  placeholder={
+                    action === 'approve' 
+                      ? 'Optional comments...' 
+                      : action === 'issue'
+                      ? 'Optional notes about the issued device...'
+                      : 'Please provide a reason for rejection...'
+                  }
                   value={comments}
                   onChange={(e) => setComments(e.target.value)}
                   rows={3}
@@ -928,15 +1056,17 @@ export default function Approvals() {
               Cancel
             </Button>
             <Button 
-              variant={action === 'approve' ? 'default' : 'destructive'}
+              variant={action === 'reject' ? 'destructive' : 'default'}
+              className={action === 'issue' ? 'bg-green-600 hover:bg-green-700' : ''}
               onClick={handleAction}
               disabled={processing || (action === 'reject' && !comments.trim())}
             >
-              {processing ? 'Processing...' : action === 'approve' ? 'Approve' : 'Reject'}
+              {processing ? 'Processing...' : action === 'approve' ? 'Approve' : action === 'issue' ? 'Issue Device' : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
 
       {/* Bulk Action Dialog */}
       <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>
