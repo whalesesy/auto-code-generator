@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -13,8 +13,17 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { CalendarIcon, Send } from 'lucide-react';
+import { CalendarIcon, Send, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+
+interface InventoryDevice {
+  id: string;
+  name: string;
+  category: string;
+  model: string | null;
+  current_stock: number;
+}
 
 const categories = [
   { value: 'computing', label: 'Computing (Laptops, Desktops)' },
@@ -38,6 +47,8 @@ export default function RequestDevice() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [inventoryDevices, setInventoryDevices] = useState<InventoryDevice[]>([]);
+  const [deviceNotFound, setDeviceNotFound] = useState(false);
   const [formData, setFormData] = useState({
     device_category: '',
     device_type: '',
@@ -47,6 +58,56 @@ export default function RequestDevice() {
     needed_date: undefined as Date | undefined,
     duration: '',
   });
+
+  // Fetch available devices from inventory
+  useEffect(() => {
+    fetchInventoryDevices();
+  }, []);
+
+  const fetchInventoryDevices = async () => {
+    const { data: devicesData } = await supabase
+      .from('devices')
+      .select('*')
+      .order('name');
+
+    const { data: movementsData } = await supabase
+      .from('stock_movements')
+      .select('*');
+
+    if (devicesData) {
+      const devicesWithStock = devicesData.map(device => {
+        const deviceMovements = movementsData?.filter(m => m.device_id === device.id) || [];
+        const stock_in = deviceMovements.filter(m => m.movement_type === 'in').reduce((acc, m) => acc + m.quantity, 0);
+        const stock_out = deviceMovements.filter(m => m.movement_type === 'out').reduce((acc, m) => acc + m.quantity, 0);
+        return {
+          id: device.id,
+          name: device.name,
+          category: device.category,
+          model: device.model,
+          current_stock: stock_in - stock_out,
+        };
+      }).filter(d => d.current_stock > 0); // Only show devices with available stock
+      setInventoryDevices(devicesWithStock);
+    }
+  };
+
+  // Filter devices by selected category
+  const filteredDevices = formData.device_category
+    ? inventoryDevices.filter(d => d.category === formData.device_category)
+    : inventoryDevices;
+
+  // Check if manually entered device exists in inventory
+  const checkDeviceExists = (deviceType: string) => {
+    if (!deviceType) {
+      setDeviceNotFound(false);
+      return;
+    }
+    const exists = inventoryDevices.some(d => 
+      d.name.toLowerCase().includes(deviceType.toLowerCase()) ||
+      (d.model && d.model.toLowerCase().includes(deviceType.toLowerCase()))
+    );
+    setDeviceNotFound(!exists);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,12 +150,21 @@ export default function RequestDevice() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {deviceNotFound && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Device not found in inventory. Please select from available devices or contact admin.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="category">Device Category *</Label>
                   <Select
                     value={formData.device_category}
-                    onValueChange={(value) => setFormData({ ...formData, device_category: value })}
+                    onValueChange={(value) => setFormData({ ...formData, device_category: value, device_type: '', device_model: '' })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
@@ -109,12 +179,44 @@ export default function RequestDevice() {
 
                 <div className="space-y-2">
                   <Label htmlFor="device_type">Device Type *</Label>
-                  <Input
-                    id="device_type"
-                    placeholder="e.g., Laptop, Monitor"
-                    value={formData.device_type}
-                    onChange={(e) => setFormData({ ...formData, device_type: e.target.value })}
-                  />
+                  {filteredDevices.length > 0 ? (
+                    <Select
+                      value={formData.device_type}
+                      onValueChange={(value) => {
+                        const device = inventoryDevices.find(d => d.name === value);
+                        setFormData({ 
+                          ...formData, 
+                          device_type: value,
+                          device_model: device?.model || ''
+                        });
+                        setDeviceNotFound(false);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select device from inventory" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredDevices.map(device => (
+                          <SelectItem key={device.id} value={device.name}>
+                            {device.name} {device.model ? `(${device.model})` : ''} - {device.current_stock} available
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="device_type"
+                      placeholder="e.g., Laptop, Monitor"
+                      value={formData.device_type}
+                      onChange={(e) => {
+                        setFormData({ ...formData, device_type: e.target.value });
+                        checkDeviceExists(e.target.value);
+                      }}
+                    />
+                  )}
+                  {filteredDevices.length === 0 && formData.device_category && (
+                    <p className="text-xs text-muted-foreground">No devices available in this category. Enter device type manually.</p>
+                  )}
                 </div>
               </div>
 
@@ -126,6 +228,7 @@ export default function RequestDevice() {
                     placeholder="e.g., Dell XPS 15"
                     value={formData.device_model}
                     onChange={(e) => setFormData({ ...formData, device_model: e.target.value })}
+                    disabled={filteredDevices.length > 0 && formData.device_type !== ''}
                   />
                 </div>
 
