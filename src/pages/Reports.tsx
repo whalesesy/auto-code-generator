@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { exportToCSV, exportToPDF } from '@/lib/export';
-import { QueryFiltersSidebar, QueryFilters, defaultFilters, applyQueryFilters } from '@/components/filters/QueryFiltersSidebar';
+import { QueryFilters, defaultFilters, applyQueryFilters } from '@/components/filters/QueryFiltersSidebar';
+import { ReportCardWithFilters } from '@/components/reports/ReportCardWithFilters';
 import { 
   Pagination, 
   PaginationContent, 
@@ -21,8 +22,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   BarChart3, Download, FileText, Package, Users, ClipboardList, Printer, 
-  TrendingUp, TrendingDown, ArrowLeft, MessageSquare, Activity, PieChart, Calendar,
-  PanelLeftClose, PanelLeft, Filter, FileDown
+  TrendingUp, ArrowLeft, MessageSquare, Activity, PieChart,
+  FileDown
 } from 'lucide-react';
 
 interface ReportData {
@@ -51,8 +52,6 @@ export default function Reports() {
   const [reportType, setReportType] = useState<string>('');
   const [reportData, setReportData] = useState<ReportData[]>([]);
   const [loadingReport, setLoadingReport] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [filters, setFilters] = useState<QueryFilters>(defaultFilters);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -105,7 +104,7 @@ export default function Reports() {
   };
 
   // ===== ADMIN REPORTS =====
-  const generateFullSystemReport = async () => {
+  const generateFullSystemReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
@@ -136,7 +135,7 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  const generateInventoryReport = async () => {
+  const generateInventoryReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data: devices } = await supabase.from('devices').select('*');
     const { data: movements } = await supabase.from('stock_movements').select('*');
@@ -167,7 +166,7 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  const generateStockMovementReport = async () => {
+  const generateStockMovementReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data: movements } = await supabase
       .from('stock_movements')
@@ -192,7 +191,7 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  const generateUserReport = async () => {
+  const generateUserReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data: profiles } = await supabase.from('profiles').select('*');
     const { data: roles } = await supabase.from('user_roles').select('*');
@@ -207,16 +206,17 @@ export default function Reports() {
           department: p.department || '-',
           phone: p.phone || '-',
           role: userRole?.role || 'staff',
+          created_at: p.created_at,
           joined: new Date(p.created_at).toLocaleDateString(),
         };
       });
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at' }));
       setReportType('User Report');
     }
     setLoadingReport(false);
   };
 
-  const generateAdminActivityReport = async () => {
+  const generateAdminActivityReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data: roles } = await supabase.from('user_roles').select('user_id').eq('role', 'admin');
     const adminIds = roles?.map(r => r.user_id) || [];
@@ -234,15 +234,16 @@ export default function Reports() {
         device: r.device_type,
         requester: (r as any).profiles?.full_name || 'Unknown',
         comments: r.approver_comments || '-',
+        created_at: r.approved_at || r.created_at,
         date: r.approved_at ? new Date(r.approved_at).toLocaleDateString() : '-',
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at' }));
       setReportType('Admin Activity Report');
     }
     setLoadingReport(false);
   };
 
-  const generateUserActivityReport = async () => {
+  const generateUserActivityReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
@@ -257,16 +258,18 @@ export default function Reports() {
         department: (r as any).profiles?.department || '-',
         device: r.device_type,
         status: r.status,
+        device_category: r.device_category,
+        created_at: r.created_at,
         date: new Date(r.created_at).toLocaleDateString(),
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' }));
       setReportType('User Activity Report');
     }
     setLoadingReport(false);
   };
 
   // ===== APPROVER REPORTS =====
-  const generatePendingApprovalsReport = async () => {
+  const generatePendingApprovalsReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
@@ -280,18 +283,20 @@ export default function Reports() {
         department: (r as any).profiles?.department || '-',
         device_type: r.device_type,
         category: r.device_category,
+        device_category: r.device_category,
         quantity: r.quantity,
         purpose: r.purpose,
         needed_date: new Date(r.needed_date).toLocaleDateString(),
+        created_at: r.created_at,
         submitted: new Date(r.created_at).toLocaleDateString(),
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category' }));
       setReportType('Pending Approvals Report');
     }
     setLoadingReport(false);
   };
 
-  const generateApprovalHistoryReport = async () => {
+  const generateApprovalHistoryReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data } = await supabase
       .from('device_requests')
@@ -306,17 +311,19 @@ export default function Reports() {
         department: (r as any).profiles?.department || '-',
         device_type: r.device_type,
         status: r.status,
+        device_category: r.device_category,
         comments: r.approver_comments || '-',
+        created_at: r.approved_at || r.created_at,
         decided_at: r.approved_at ? new Date(r.approved_at).toLocaleDateString() : '-',
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' }));
       setReportType('Approval History Report');
     }
     setLoadingReport(false);
   };
 
   // ===== STAFF/USER REPORTS =====
-  const generateMyRequestsReport = async () => {
+  const generateMyRequestsReport = async (filters: QueryFilters) => {
     if (!user) return;
     setLoadingReport(true);
     const { data } = await supabase
@@ -330,21 +337,23 @@ export default function Reports() {
         id: r.id,
         device_type: r.device_type,
         category: r.device_category,
+        device_category: r.device_category,
         quantity: r.quantity,
         purpose: r.purpose,
         status: r.status,
         needed_date: new Date(r.needed_date).toLocaleDateString(),
         pickup_location: r.pickup_location || '-',
         expected_return_date: r.expected_return_date ? new Date(r.expected_return_date).toLocaleDateString() : '-',
+        created_at: r.created_at,
         submitted: new Date(r.created_at).toLocaleDateString(),
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' }));
       setReportType('My Requests Report');
     }
     setLoadingReport(false);
   };
 
-  const generateStatusReport = async () => {
+  const generateStatusReport = async (filters: QueryFilters) => {
     if (!user) return;
     setLoadingReport(true);
     const { data } = await supabase
@@ -357,18 +366,20 @@ export default function Reports() {
       const formatted = data.map(r => ({
         id: r.id,
         device_type: r.device_type,
+        device_category: r.device_category,
         status: r.status.toUpperCase(),
+        created_at: r.created_at,
         submitted: new Date(r.created_at).toLocaleDateString(),
         updated: new Date(r.updated_at).toLocaleDateString(),
         comments: r.approver_comments || '-',
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' }));
       setReportType('Status Report');
     }
     setLoadingReport(false);
   };
 
-  const generateAnalyticReport = async () => {
+  const generateAnalyticReport = async (filters: QueryFilters) => {
     if (!user) return;
     setLoadingReport(true);
     const { data } = await supabase
@@ -378,8 +389,11 @@ export default function Reports() {
       .order('created_at', { ascending: false });
     
     if (data) {
+      // First apply date filters
+      const filteredData = applyQueryFilters(data.map(r => ({ ...r, device_category: r.device_category })), filters, { dateField: 'created_at', categoryField: 'device_category', statusField: 'status' });
+      
       const byMonth: { [key: string]: { pending: number; approved: number; rejected: number } } = {};
-      data.forEach(r => {
+      filteredData.forEach(r => {
         const month = new Date(r.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
         if (!byMonth[month]) byMonth[month] = { pending: 0, approved: 0, rejected: 0 };
         if (r.status === 'pending') byMonth[month].pending++;
@@ -401,7 +415,7 @@ export default function Reports() {
     setLoadingReport(false);
   };
 
-  const generateFeedbackReport = async () => {
+  const generateFeedbackReport = async (filters: QueryFilters) => {
     if (!user) return;
     setLoadingReport(true);
     const { data } = await supabase
@@ -416,15 +430,16 @@ export default function Reports() {
         subject: f.subject,
         recipient_type: f.recipient_type,
         message: f.message.substring(0, 100) + (f.message.length > 100 ? '...' : ''),
+        created_at: f.created_at,
         sent_at: new Date(f.created_at).toLocaleDateString(),
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at' }));
       setReportType('My Feedback Report');
     }
     setLoadingReport(false);
   };
 
-  const generateAllFeedbackReport = async () => {
+  const generateAllFeedbackReport = async (filters: QueryFilters) => {
     setLoadingReport(true);
     const { data } = await supabase
       .from('feedback')
@@ -438,9 +453,10 @@ export default function Reports() {
         subject: f.subject,
         recipient_type: f.recipient_type,
         message: f.message.substring(0, 100) + (f.message.length > 100 ? '...' : ''),
+        created_at: f.created_at,
         sent_at: new Date(f.created_at).toLocaleDateString(),
       }));
-      setReportData(formatted);
+      setReportData(applyQueryFilters(formatted, filters, { dateField: 'created_at' }));
       setReportType('All Feedback Report');
     }
     setLoadingReport(false);
@@ -469,33 +485,33 @@ export default function Reports() {
 
   const getReportColumns = () => {
     if (reportData.length === 0) return [];
-    return Object.keys(reportData[0]).filter(k => k !== 'id');
+    return Object.keys(reportData[0]).filter(k => k !== 'id' && k !== 'created_at' && k !== 'device_category');
   };
 
-  // Report cards based on role
+  // Report definitions
   const adminReports = [
-    { title: 'Full System Report', desc: 'Complete overview of all requests with user details', action: generateFullSystemReport, icon: FileText },
-    { title: 'Inventory Report', desc: 'All devices with stock levels and details', action: generateInventoryReport, icon: Package },
-    { title: 'Stock Movement Report', desc: 'All stock in/out movements history', action: generateStockMovementReport, icon: TrendingUp },
-    { title: 'User Report', desc: 'All users with roles and departments', action: generateUserReport, icon: Users },
-    { title: 'Admin Activity', desc: 'Actions taken by administrators', action: generateAdminActivityReport, icon: Activity },
-    { title: 'User Activity', desc: 'Recent user activities and requests', action: generateUserActivityReport, icon: Activity },
-    { title: 'All Feedback', desc: 'All feedback submitted by users', action: generateAllFeedbackReport, icon: MessageSquare },
+    { title: 'Full System Report', desc: 'Complete overview of all requests with user details', action: generateFullSystemReport, icon: FileText, showCategory: true, showApproval: true },
+    { title: 'Inventory Report', desc: 'All devices with stock levels and details', action: generateInventoryReport, icon: Package, showCategory: true, showApproval: true },
+    { title: 'Stock Movement Report', desc: 'All stock in/out movements history', action: generateStockMovementReport, icon: TrendingUp, showCategory: true, showApproval: false },
+    { title: 'User Report', desc: 'All users with roles and departments', action: generateUserReport, icon: Users, showCategory: false, showApproval: false },
+    { title: 'Admin Activity', desc: 'Actions taken by administrators', action: generateAdminActivityReport, icon: Activity, showCategory: false, showApproval: false },
+    { title: 'User Activity', desc: 'Recent user activities and requests', action: generateUserActivityReport, icon: Activity, showCategory: true, showApproval: true },
+    { title: 'All Feedback', desc: 'All feedback submitted by users', action: generateAllFeedbackReport, icon: MessageSquare, showCategory: false, showApproval: false },
   ];
 
   const approverReports = [
-    { title: 'Pending Approvals', desc: 'All requests awaiting your approval', action: generatePendingApprovalsReport, icon: ClipboardList },
-    { title: 'Approval History', desc: 'Your approval/rejection decisions', action: generateApprovalHistoryReport, icon: FileText },
-    { title: 'Analytics Report', desc: 'Monthly breakdown of requests by status', action: generateAnalyticReport, icon: PieChart },
-    { title: 'Status Report', desc: 'Current status of all your requests', action: generateStatusReport, icon: BarChart3 },
-    { title: 'My Feedback', desc: 'Feedback you have submitted', action: generateFeedbackReport, icon: MessageSquare },
+    { title: 'Pending Approvals', desc: 'All requests awaiting your approval', action: generatePendingApprovalsReport, icon: ClipboardList, showCategory: true, showApproval: false },
+    { title: 'Approval History', desc: 'Your approval/rejection decisions', action: generateApprovalHistoryReport, icon: FileText, showCategory: true, showApproval: true },
+    { title: 'Analytics Report', desc: 'Monthly breakdown of requests by status', action: generateAnalyticReport, icon: PieChart, showCategory: true, showApproval: true },
+    { title: 'Status Report', desc: 'Current status of all your requests', action: generateStatusReport, icon: BarChart3, showCategory: true, showApproval: true },
+    { title: 'My Feedback', desc: 'Feedback you have submitted', action: generateFeedbackReport, icon: MessageSquare, showCategory: false, showApproval: false },
   ];
 
   const staffReports = [
-    { title: 'Analytics Report', desc: 'Monthly breakdown of your requests', action: generateAnalyticReport, icon: PieChart },
-    { title: 'Status Report', desc: 'View status: Pending, Approved, or Rejected', action: generateStatusReport, icon: BarChart3 },
-    { title: 'My Requests', desc: 'All your device requests with dates', action: generateMyRequestsReport, icon: ClipboardList },
-    { title: 'My Feedback', desc: 'Feedback you have submitted', action: generateFeedbackReport, icon: MessageSquare },
+    { title: 'Analytics Report', desc: 'Monthly breakdown of your requests', action: generateAnalyticReport, icon: PieChart, showCategory: true, showApproval: true },
+    { title: 'Status Report', desc: 'View status: Pending, Approved, or Rejected', action: generateStatusReport, icon: BarChart3, showCategory: true, showApproval: true },
+    { title: 'My Requests', desc: 'All your device requests with dates', action: generateMyRequestsReport, icon: ClipboardList, showCategory: true, showApproval: true },
+    { title: 'My Feedback', desc: 'Feedback you have submitted', action: generateFeedbackReport, icon: MessageSquare, showCategory: false, showApproval: false },
   ];
 
   const getAvailableReports = () => {
@@ -506,54 +522,32 @@ export default function Reports() {
 
   return (
     <DashboardLayout>
-      <div className="flex gap-6">
-        {/* Sidebar Filters */}
-        {showSidebar && (
-          <div className="w-64 shrink-0">
-            <QueryFiltersSidebar
-              filters={filters}
-              onFiltersChange={setFilters}
-              onReset={() => setFilters(defaultFilters)}
-            />
-          </div>
-        )}
-
-        <div className="flex-1 space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div>
-                <h1 className="text-3xl font-bold">Reports & Analytics</h1>
-                <p className="text-muted-foreground">Generate, download, and print system reports</p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="flex items-center gap-2"
-            >
-              {showSidebar ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-              <Filter className="h-4 w-4" />
-              Filters
+      <div className="flex-1 space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
+            <div>
+              <h1 className="text-3xl font-bold">Reports & Analytics</h1>
+              <p className="text-muted-foreground">Generate, download, and print system reports</p>
+            </div>
           </div>
+        </div>
 
-          {/* Overview Stats - Admin/ICT Manager Only */}
-          {role === 'admin' && (
-            <>
-              <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5" />
-                    ICT Manager Dashboard - Project Overview
-                  </CardTitle>
-                  <CardDescription>Complete system overview with admin and user activities</CardDescription>
-                </CardHeader>
-              </Card>
-            
+        {/* Overview Stats - Admin/ICT Manager Only */}
+        {role === 'admin' && (
+          <>
+            <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  ICT Manager Dashboard - Project Overview
+                </CardTitle>
+                <CardDescription>Complete system overview with admin and user activities</CardDescription>
+              </CardHeader>
+            </Card>
+          
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -609,34 +603,6 @@ export default function Reports() {
                 </CardContent>
               </Card>
             </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={generateAdminActivityReport}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Activity className="h-5 w-5 text-primary" />
-                    Admin Activities
-                  </CardTitle>
-                  <CardDescription>View all actions taken by administrators</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" className="w-full">View Admin Activity Report</Button>
-                </CardContent>
-              </Card>
-              
-              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={generateUserActivityReport}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Users className="h-5 w-5 text-primary" />
-                    User Activities
-                  </CardTitle>
-                  <CardDescription>View recent activities from all users</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" className="w-full">View User Activity Report</Button>
-                </CardContent>
-              </Card>
-            </div>
           </>
         )}
 
@@ -648,25 +614,21 @@ export default function Reports() {
                 <FileText className="h-5 w-5" />
                 Available Reports
               </CardTitle>
-              <CardDescription>Select a report type to generate</CardDescription>
+              <CardDescription>Click on a report to configure filters and generate</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {getAvailableReports().map((report, index) => (
-                  <Card key={index} className="border-dashed hover:border-primary hover:shadow-md cursor-pointer transition-all" onClick={report.action}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center gap-2">
-                        <report.icon className="h-5 w-5 text-primary" />
-                        <CardTitle className="text-lg">{report.title}</CardTitle>
-                      </div>
-                      <CardDescription>{report.desc}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button className="w-full" variant="outline">
-                        Generate Report
-                      </Button>
-                    </CardContent>
-                  </Card>
+                  <ReportCardWithFilters
+                    key={index}
+                    title={report.title}
+                    description={report.desc}
+                    icon={report.icon}
+                    onGenerate={report.action}
+                    showCategoryFilter={report.showCategory}
+                    showApprovalFilters={report.showApproval}
+                    showTicketFilter={true}
+                  />
                 ))}
               </div>
             </CardContent>
@@ -830,7 +792,6 @@ export default function Reports() {
             </CardContent>
           </Card>
         )}
-        </div>
       </div>
     </DashboardLayout>
   );
