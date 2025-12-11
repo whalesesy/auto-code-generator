@@ -20,6 +20,7 @@ import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import Contact from "./pages/Contact";
 import HelpCenter from "./pages/HelpCenter";
+import SignupApprovals from "./pages/SignupApprovals";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -47,6 +48,7 @@ const App = () => (
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/help-center" element={<HelpCenter />} />
+              <Route path="/signup-approvals" element={<SignupApprovals />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
