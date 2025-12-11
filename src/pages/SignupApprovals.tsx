@@ -66,7 +66,22 @@ export default function SignupApprovals() {
     setLoading(false);
   };
 
+  // Check if current user is the one who made this signup request (self-approval prevention)
+  const isSelfRequest = (request: SignupRequest) => {
+    // Check if the request email matches the current user's email
+    return request.email === user?.email;
+  };
+
   const handleAction = (request: SignupRequest, action: 'approve' | 'reject') => {
+    // Prevent self-approval
+    if (isSelfRequest(request)) {
+      toast({ 
+        title: 'Action not allowed', 
+        description: 'You cannot approve or reject your own signup request.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
     setSelectedRequest(request);
     setActionType(action);
     setRejectionReason('');
@@ -274,24 +289,30 @@ export default function SignupApprovals() {
                       <TableCell>{new Date(request.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>
                         {request.status === 'pending' ? (
-                          <div className="flex gap-2">
-                            <Button 
-                              size="sm" 
-                              className="bg-green-600 hover:bg-green-700"
-                              onClick={() => handleAction(request, 'approve')}
-                            >
-                              <UserCheck className="h-4 w-4 mr-1" />
-                              Approve
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="destructive"
-                              onClick={() => handleAction(request, 'reject')}
-                            >
-                              <UserX className="h-4 w-4 mr-1" />
-                              Reject
-                            </Button>
-                          </div>
+                          isSelfRequest(request) ? (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              Cannot self-approve
+                            </Badge>
+                          ) : (
+                            <div className="flex gap-2">
+                              <Button 
+                                size="sm" 
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleAction(request, 'approve')}
+                              >
+                                <UserCheck className="h-4 w-4 mr-1" />
+                                Approve
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                onClick={() => handleAction(request, 'reject')}
+                              >
+                                <UserX className="h-4 w-4 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                          )
                         ) : (
                           <span className="text-muted-foreground text-sm">
                             {request.rejection_reason && `Reason: ${request.rejection_reason}`}
