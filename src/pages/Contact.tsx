@@ -38,16 +38,16 @@ export default function Contact() {
     {
       icon: Mail,
       title: 'Email',
-      value: 'support@ictmanager.com',
+      value: 'devicehub68@gmail.com',
       description: 'For general inquiries',
-      href: 'mailto:support@ictmanager.com',
+      href: 'mailto:devicehub68@gmail.com',
     },
     {
       icon: Phone,
       title: 'Phone',
-      value: '+1 (555) 123-4567',
-      description: 'Mon-Fri, 9 AM - 5 PM',
-      href: 'tel:+15551234567',
+      value: '+254 710 366 205',
+      description: 'Mon-Fri, 8 AM - 5 PM EAT',
+      href: 'tel:+254710366205',
     },
     {
       icon: MessageCircle,
@@ -59,9 +59,9 @@ export default function Contact() {
     {
       icon: MapPin,
       title: 'Office',
-      value: '123 Technology Drive',
-      description: 'Tech City, TC 12345',
-      href: '#',
+      value: 'Meru University of Science & Technology',
+      description: 'Meru, Kenya',
+      href: 'https://maps.google.com/?q=Meru+University+of+Science+and+Technology',
     },
   ];
 
@@ -94,6 +94,8 @@ export default function Contact() {
               <a
                 key={title}
                 href={href}
+                target={title === 'Office' ? '_blank' : undefined}
+                rel={title === 'Office' ? 'noopener noreferrer' : undefined}
                 className="flex items-start gap-4 p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
               >
                 <div className="p-2 rounded-lg bg-primary/10">
@@ -118,16 +120,17 @@ export default function Contact() {
               <CardContent className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Monday - Friday</span>
-                  <span className="font-medium">9:00 AM - 5:00 PM</span>
+                  <span className="font-medium">8:00 AM - 5:00 PM</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Saturday</span>
-                  <span className="font-medium">10:00 AM - 2:00 PM</span>
+                  <span className="font-medium">9:00 AM - 1:00 PM</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Sunday</span>
                   <span className="font-medium">Closed</span>
                 </div>
+                <p className="text-xs text-muted-foreground pt-2">All times in East Africa Time (EAT)</p>
               </CardContent>
             </Card>
 

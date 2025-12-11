@@ -236,6 +236,7 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          is_approved: boolean | null
           phone: string | null
           updated_at: string
           user_id: string
@@ -247,6 +248,7 @@ export type Database = {
           email: string
           full_name: string
           id?: string
+          is_approved?: boolean | null
           phone?: string | null
           updated_at?: string
           user_id: string
@@ -258,6 +260,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          is_approved?: boolean | null
           phone?: string | null
           updated_at?: string
           user_id?: string
@@ -301,6 +304,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      signup_requests: {
+        Row: {
+          approved_by: string | null
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          phone: string | null
+          rejection_reason: string | null
+          requested_role: Database["public"]["Enums"]["app_role"]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_by?: string | null
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          phone?: string | null
+          rejection_reason?: string | null
+          requested_role?: Database["public"]["Enums"]["app_role"]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_by?: string | null
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          phone?: string | null
+          rejection_reason?: string | null
+          requested_role?: Database["public"]["Enums"]["app_role"]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       stock_movements: {
         Row: {

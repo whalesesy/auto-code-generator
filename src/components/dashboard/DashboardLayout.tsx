@@ -28,7 +28,8 @@ import {
   Menu,
   LogOut,
   User,
-  Monitor
+  Monitor,
+  UserCheck
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -52,12 +53,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { label: 'Request Device', icon: ClipboardPlus, href: '/request', roles: ['staff', 'approver', 'admin'] },
     { label: 'My Requests', icon: FileText, href: '/my-requests', roles: ['staff', 'approver', 'admin'] },
     { label: 'Pending Approvals', icon: CheckSquare, href: '/approvals', roles: ['approver', 'admin'] },
+    { label: 'Signup Approvals', icon: UserCheck, href: '/signup-approvals', roles: ['approver', 'admin'] },
     { label: 'Inventory', icon: Package, href: '/inventory', roles: ['admin'] },
-    { label: 'Reports', icon: BarChart3, href: '/reports', roles: ['admin'] },
+    { label: 'Reports', icon: BarChart3, href: '/reports', roles: ['staff', 'approver', 'admin'] },
     { label: 'Feedback', icon: MessageSquare, href: '/feedback', roles: ['staff', 'approver', 'admin'] },
     { label: 'Help', icon: HelpCircle, href: '/help', roles: ['staff', 'approver', 'admin'] },
   ];
-
   const filteredNavItems = navItems.filter(item => 
     role && item.roles.includes(role)
   );

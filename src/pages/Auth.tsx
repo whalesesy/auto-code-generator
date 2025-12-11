@@ -8,8 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome, KeyRound, Phone } from 'lucide-react';
+import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome, KeyRound, Phone, UserCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { z } from 'zod';
 
@@ -23,7 +24,7 @@ const passwordSchema = z.string()
 const emailSchema = z.string().email('Invalid email address');
 
 export default function Auth() {
-const [email, setEmail] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -36,6 +37,7 @@ const [email, setEmail] = useState('');
   const [activeTab, setActiveTab] = useState('login');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<'staff' | 'approver' | 'admin'>('staff');
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -44,7 +46,6 @@ const [email, setEmail] = useState('');
     if (user) {
       navigate('/dashboard');
     }
-    // Check if this is a password reset callback
     if (searchParams.get('tab') === 'reset') {
       setIsResetMode(true);
     }
@@ -77,6 +78,24 @@ const [email, setEmail] = useState('');
     }
 
     setLoading(true);
+    
+    // Check if user signup is approved
+    const { data: signupRequest } = await supabase
+      .from('signup_requests')
+      .select('status')
+      .eq('email', email)
+      .single();
+    
+    if (signupRequest && signupRequest.status !== 'approved') {
+      setLoading(false);
+      toast({ 
+        title: 'Account pending approval', 
+        description: 'Your account is awaiting approval from an approver. Please wait for approval before logging in.',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     const { error } = await signIn(email, password);
     setLoading(false);
 
@@ -106,48 +125,86 @@ const [email, setEmail] = useState('');
       return;
     }
 
-    // Validate phone if provided
-    if (phone && !/^\+?[1-9]\d{6,14}$/.test(phone.replace(/[\s-]/g, ''))) {
-      toast({ title: 'Invalid phone number', description: 'Please enter a valid phone number with country code.', variant: 'destructive' });
+    // Format phone with country code if provided
+    const formattedPhone = phone ? (phone.startsWith('+') ? phone : `+254${phone.replace(/^0/, '')}`) : '';
+    
+    if (formattedPhone && !/^\+254[0-9]{9}$/.test(formattedPhone.replace(/[\s-]/g, ''))) {
+      toast({ title: 'Invalid phone number', description: 'Please enter a valid Kenyan phone number (e.g., 710366205).', variant: 'destructive' });
       return;
     }
 
     setLoading(true);
+
+    // First create signup request for approval
+    const { error: signupRequestError } = await supabase
+      .from('signup_requests')
+      .insert({
+        email,
+        full_name: fullName,
+        phone: formattedPhone || null,
+        requested_role: selectedRole,
+        status: 'pending',
+      });
+
+    if (signupRequestError) {
+      setLoading(false);
+      if (signupRequestError.message.includes('duplicate') || signupRequestError.message.includes('unique')) {
+        toast({ title: 'Email already registered', description: 'This email has already been used for a signup request.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Signup request failed', description: signupRequestError.message, variant: 'destructive' });
+      }
+      return;
+    }
+
+    // Create the actual user account
     const { error, data } = await supabase.auth.signUp({
       email,
       password,
-      phone: phone || undefined,
+      phone: formattedPhone || undefined,
       options: {
         emailRedirectTo: `${window.location.origin}/auth`,
-        data: { full_name: fullName, phone }
+        data: { full_name: fullName, phone: formattedPhone, requested_role: selectedRole }
       }
     });
     setLoading(false);
 
     if (error) {
+      // Cleanup signup request if auth fails
+      await supabase.from('signup_requests').delete().eq('email', email);
+      
       if (error.message.includes('already registered')) {
         toast({ title: 'Email already registered', description: 'Please login or use a different email.', variant: 'destructive' });
       } else {
         toast({ title: 'Signup failed', description: error.message, variant: 'destructive' });
       }
     } else {
+      // Sign out immediately - user can't access until approved
+      await supabase.auth.signOut();
+      
       toast({ 
-        title: 'Account created!', 
-        description: 'Please check your email to verify your account before logging in.' 
+        title: 'Signup request submitted!', 
+        description: 'Your account request has been sent to an approver. You will be notified when your account is approved. Please check your email and wait for approval before logging in.' 
       });
       setActiveTab('login');
+      setEmail('');
+      setPassword('');
+      setFullName('');
+      setPhone('');
+      setSelectedRole('staff');
     }
   };
 
   const handleSendPhoneOtp = async () => {
-    if (!phone || !/^\+?[1-9]\d{6,14}$/.test(phone.replace(/[\s-]/g, ''))) {
-      toast({ title: 'Invalid phone number', description: 'Please enter a valid phone number with country code (e.g., +1234567890).', variant: 'destructive' });
+    const formattedPhone = phone.startsWith('+') ? phone : `+254${phone.replace(/^0/, '')}`;
+    
+    if (!/^\+254[0-9]{9}$/.test(formattedPhone.replace(/[\s-]/g, ''))) {
+      toast({ title: 'Invalid phone number', description: 'Please enter a valid Kenyan phone number (e.g., 710366205).', variant: 'destructive' });
       return;
     }
     
     setLoading(true);
     const { error } = await supabase.auth.signInWithOtp({
-      phone,
+      phone: formattedPhone,
     });
     setLoading(false);
 
@@ -165,9 +222,11 @@ const [email, setEmail] = useState('');
       return;
     }
 
+    const formattedPhone = phone.startsWith('+') ? phone : `+254${phone.replace(/^0/, '')}`;
+
     setLoading(true);
     const { error } = await supabase.auth.verifyOtp({
-      phone,
+      phone: formattedPhone,
       token: phoneOtp,
       type: 'sms',
     });
@@ -608,14 +667,18 @@ const [email, setEmail] = useState('');
                 <div className="space-y-2">
                   <Label htmlFor="signupPhone">Phone Number (Optional)</Label>
                   <div className="flex gap-2">
+                    <div className="flex items-center px-3 border rounded-md bg-muted text-muted-foreground text-sm">
+                      +254
+                    </div>
                     <Input
                       id="signupPhone"
                       type="tel"
-                      placeholder="+1234567890"
+                      placeholder="710366205"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="transition-all duration-300 focus:ring-2 focus:ring-primary/20"
+                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                      className="transition-all duration-300 focus:ring-2 focus:ring-primary/20 flex-1"
                       disabled={phoneVerified}
+                      maxLength={9}
                     />
                     {phone && !phoneVerified && !showPhoneVerification && (
                       <Button 
@@ -652,8 +715,28 @@ const [email, setEmail] = useState('');
                       </Button>
                     </div>
                   )}
-                  <p className="text-xs text-muted-foreground">Include country code for SMS verification</p>
+                  <p className="text-xs text-muted-foreground">Kenya country code (+254) is automatically added</p>
                 </div>
+                
+                {/* Role Selection */}
+                <div className="space-y-2">
+                  <Label htmlFor="role">Select Your Role</Label>
+                  <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as any)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-background border z-50">
+                      <SelectItem value="staff">Staff (Request Devices)</SelectItem>
+                      <SelectItem value="approver">Approver (Approve Requests)</SelectItem>
+                      <SelectItem value="admin">Admin (Full System Access)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <UserCheck className="h-3 w-3" />
+                    Your role will be verified by an approver before activation
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="signupPassword">Password</Label>
                   <div className="relative">
@@ -679,10 +762,10 @@ const [email, setEmail] = useState('');
                   <PasswordStrength checks={passwordChecks} />
                 </div>
                 <Button type="submit" className="w-full transition-all hover:scale-[1.02] hover:shadow-lg" disabled={loading}>
-                  {loading ? 'Creating account...' : 'Create Account'}
+                  {loading ? 'Submitting request...' : 'Request Account'}
                 </Button>
                 <p className="text-xs text-muted-foreground text-center">
-                  📧 You will receive a confirmation email to verify your account.
+                  ⏳ Your account will require approval from an approver before you can log in.
                 </p>
               </form>
 
