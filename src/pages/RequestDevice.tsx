@@ -16,6 +16,17 @@ import { format } from 'date-fns';
 import { CalendarIcon, Send, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { z } from 'zod';
+
+// Validation schema for device requests
+const deviceRequestSchema = z.object({
+  device_category: z.string().min(1, 'Device category is required'),
+  device_type: z.string().min(1, 'Device type is required').max(100, 'Device type must be less than 100 characters'),
+  device_model: z.string().max(100, 'Device model must be less than 100 characters').optional(),
+  quantity: z.number().min(1, 'Quantity must be at least 1').max(50, 'Quantity cannot exceed 50'),
+  purpose: z.string().min(10, 'Purpose must be at least 10 characters').max(1000, 'Purpose must be less than 1000 characters'),
+  duration: z.string().min(1, 'Duration is required'),
+});
 
 interface InventoryDevice {
   id: string;
@@ -112,8 +123,24 @@ export default function RequestDevice() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.device_category || !formData.device_type || !formData.purpose || !formData.needed_date || !formData.duration) {
-      toast({ title: 'Please fill all required fields', variant: 'destructive' });
+    // Validate with Zod schema
+    const validation = deviceRequestSchema.safeParse({
+      device_category: formData.device_category,
+      device_type: formData.device_type.trim(),
+      device_model: formData.device_model?.trim() || undefined,
+      quantity: formData.quantity,
+      purpose: formData.purpose.trim(),
+      duration: formData.duration,
+    });
+
+    if (!validation.success) {
+      const firstError = validation.error.errors[0];
+      toast({ title: firstError.message, variant: 'destructive' });
+      return;
+    }
+
+    if (!formData.needed_date) {
+      toast({ title: 'Please select a needed date', variant: 'destructive' });
       return;
     }
 
@@ -122,10 +149,10 @@ export default function RequestDevice() {
     const { error } = await supabase.from('device_requests').insert({
       requester_id: user?.id,
       device_category: formData.device_category as any,
-      device_type: formData.device_type,
-      device_model: formData.device_model || null,
+      device_type: formData.device_type.trim(),
+      device_model: formData.device_model?.trim() || null,
       quantity: formData.quantity,
-      purpose: formData.purpose,
+      purpose: formData.purpose.trim(),
       needed_date: formData.needed_date.toISOString().split('T')[0],
       duration: formData.duration,
     });
