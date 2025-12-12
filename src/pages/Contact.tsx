@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 import { ArrowLeft, Mail, Phone, MapPin, Clock, Send, MessageCircle, Globe, Facebook, Twitter, Linkedin } from 'lucide-react';
+import LiveChatBot from '@/components/LiveChatBot';
 
 export default function Contact() {
   const navigate = useNavigate();
@@ -52,8 +53,8 @@ export default function Contact() {
     {
       icon: MessageCircle,
       title: 'Live Chat',
-      value: 'Start a conversation',
-      description: 'Average response: 5 mins',
+      value: 'Chat with our AI Assistant',
+      description: 'Click the chat button below',
       href: '#',
     },
     {
@@ -219,6 +220,9 @@ export default function Contact() {
           </Card>
         </div>
       </div>
+
+      {/* Live Chat Bot */}
+      <LiveChatBot />
     </div>
   );
 }

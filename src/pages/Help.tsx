@@ -2,6 +2,7 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { HelpCircle, Mail, Phone, MessageCircle, Globe, Facebook, Twitter, Linkedin } from 'lucide-react';
+import LiveChatBot from '@/components/LiveChatBot';
 
 const helpTopics = {
   'Getting Started': [
@@ -28,9 +29,9 @@ const helpTopics = {
 };
 
 const contactInfo = [
-  { icon: Mail, label: 'Email', value: 'support@ictmanager.com', href: 'mailto:support@ictmanager.com' },
-  { icon: Phone, label: 'Phone', value: '+1 (555) 123-4567', href: 'tel:+15551234567' },
-  { icon: MessageCircle, label: 'Live Chat', value: 'Available 9 AM - 5 PM', href: '#' },
+  { icon: Mail, label: 'Email', value: 'devicehub68@gmail.com', href: 'mailto:devicehub68@gmail.com' },
+  { icon: Phone, label: 'Phone', value: '+254 710 366 205', href: 'tel:+254710366205' },
+  { icon: MessageCircle, label: 'Live Chat', value: 'Click the chat button below', href: '#' },
 ];
 
 const socialLinks = [
@@ -121,6 +122,9 @@ export default function Help() {
           </div>
         </div>
       </div>
+
+      {/* Live Chat Bot */}
+      <LiveChatBot />
     </DashboardLayout>
   );
 }
