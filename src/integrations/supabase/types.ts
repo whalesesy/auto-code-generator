@@ -146,6 +146,36 @@ export type Database = {
         }
         Relationships: []
       }
+      failed_login_attempts: {
+        Row: {
+          attempt_count: number | null
+          email: string
+          first_attempt_at: string
+          id: string
+          ip_address: string | null
+          last_attempt_at: string
+          locked_until: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          email: string
+          first_attempt_at?: string
+          id?: string
+          ip_address?: string | null
+          last_attempt_at?: string
+          locked_until?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          email?: string
+          first_attempt_at?: string
+          id?: string
+          ip_address?: string | null
+          last_attempt_at?: string
+          locked_until?: string | null
+        }
+        Relationships: []
+      }
       feedback: {
         Row: {
           created_at: string
@@ -267,6 +297,30 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limits: {
+        Row: {
+          action_type: string
+          id: string
+          identifier: string
+          request_count: number | null
+          window_start: string
+        }
+        Insert: {
+          action_type: string
+          id?: string
+          identifier: string
+          request_count?: number | null
+          window_start?: string
+        }
+        Update: {
+          action_type?: string
+          id?: string
+          identifier?: string
+          request_count?: number | null
+          window_start?: string
+        }
+        Relationships: []
+      }
       request_tickets: {
         Row: {
           created_at: string
@@ -304,6 +358,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      security_audit_logs: {
+        Row: {
+          created_at: string
+          email: string | null
+          event_type: string
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          event_type: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          event_type?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
       }
       signup_requests: {
         Row: {
@@ -447,11 +534,63 @@ export type Database = {
         }
         Relationships: []
       }
+      user_totp_secrets: {
+        Row: {
+          backup_codes: string[] | null
+          created_at: string
+          encrypted_secret: string
+          id: string
+          is_enabled: boolean | null
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          backup_codes?: string[] | null
+          created_at?: string
+          encrypted_secret: string
+          id?: string
+          is_enabled?: boolean | null
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          backup_codes?: string[] | null
+          created_at?: string
+          encrypted_secret?: string
+          id?: string
+          is_enabled?: boolean | null
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      check_login_attempts: {
+        Args: { p_email: string; p_ip_address?: string }
+        Returns: {
+          attempts_remaining: number
+          is_locked: boolean
+          locked_until: string
+        }[]
+      }
+      check_rate_limit: {
+        Args: {
+          p_action_type: string
+          p_identifier: string
+          p_max_requests: number
+          p_window_seconds: number
+        }
+        Returns: {
+          is_limited: boolean
+          requests_remaining: number
+          reset_at: string
+        }[]
+      }
+      clear_failed_logins: { Args: { p_email: string }; Returns: undefined }
       get_user_email: { Args: { _user_id: string }; Returns: string }
       get_user_role: {
         Args: { _user_id: string }
@@ -463,6 +602,25 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      log_security_event: {
+        Args: {
+          p_email?: string
+          p_event_type: string
+          p_ip_address?: string
+          p_metadata?: Json
+          p_user_agent?: string
+          p_user_id?: string
+        }
+        Returns: string
+      }
+      record_failed_login: {
+        Args: { p_email: string; p_ip_address?: string }
+        Returns: {
+          attempts_remaining: number
+          is_now_locked: boolean
+          locked_until: string
+        }[]
       }
     }
     Enums: {
