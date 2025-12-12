@@ -38,6 +38,8 @@ interface DeviceRequest {
   approved_at: string | null;
   issued_at: string | null;
   approver_comments: string | null;
+  pickup_location: string | null;
+  expected_return_date: string | null;
   profiles: { full_name: string; email: string; department: string | null } | null;
   request_tickets?: { ticket_number: string }[];
 }
@@ -987,6 +989,8 @@ export default function Approvals() {
                           <TableHead>Category</TableHead>
                           <TableHead>Qty</TableHead>
                           <TableHead>Issued At</TableHead>
+                          <TableHead>Pickup Location</TableHead>
+                          <TableHead>Expected Return</TableHead>
                           <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1014,6 +1018,12 @@ export default function Approvals() {
                             <TableCell>{request.quantity}</TableCell>
                             <TableCell>
                               {request.issued_at ? format(new Date(request.issued_at), 'MMM d, yyyy') : '-'}
+                            </TableCell>
+                            <TableCell>{request.pickup_location || '-'}</TableCell>
+                            <TableCell>
+                              {request.expected_return_date 
+                                ? format(new Date(request.expected_return_date), 'MMM d, yyyy') 
+                                : '-'}
                             </TableCell>
                             <TableCell>
                               <Badge variant="default" className="bg-green-500">Issued</Badge>
