@@ -107,18 +107,18 @@ export default function MyRequests() {
   });
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode }> = {
-      pending: { variant: 'secondary', icon: <Clock className="h-3 w-3 mr-1" /> },
-      approved: { variant: 'default', icon: <CheckCircle className="h-3 w-3 mr-1" /> },
-      rejected: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" /> },
-      issued: { variant: 'outline', icon: <Package className="h-3 w-3 mr-1" /> },
-      returned: { variant: 'secondary', icon: <Package className="h-3 w-3 mr-1" /> },
+    const variants: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode; label: string }> = {
+      pending: { variant: 'secondary', icon: <Clock className="h-3 w-3 mr-1" />, label: 'Pending Approval' },
+      approved: { variant: 'default', icon: <CheckCircle className="h-3 w-3 mr-1" />, label: 'Approved - Waiting to be Issued' },
+      rejected: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" />, label: 'Rejected' },
+      issued: { variant: 'outline', icon: <Package className="h-3 w-3 mr-1" />, label: 'Issued' },
+      returned: { variant: 'secondary', icon: <Package className="h-3 w-3 mr-1" />, label: 'Returned' },
     };
     const config = variants[status] || variants.pending;
     return (
       <Badge variant={config.variant} className="flex items-center w-fit">
         {config.icon}
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+        {config.label}
       </Badge>
     );
   };
@@ -352,6 +352,7 @@ export default function MyRequests() {
                           <TableHead>Needed By</TableHead>
                           <TableHead>Duration</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead>Pickup / Return Info</TableHead>
                           <TableHead>Submitted</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -369,6 +370,20 @@ export default function MyRequests() {
                             <TableCell>{format(new Date(request.needed_date), 'MMM d, yyyy')}</TableCell>
                             <TableCell className="capitalize">{request.duration.replace('_', ' ')}</TableCell>
                             <TableCell>{getStatusBadge(request.status)}</TableCell>
+                            <TableCell>
+                              {request.status === 'issued' ? (
+                                <div className="text-sm">
+                                  <p><span className="font-medium">Pickup:</span> {request.pickup_location || '-'}</p>
+                                  <p><span className="font-medium">Return by:</span> {request.expected_return_date ? format(new Date(request.expected_return_date), 'MMM d, yyyy') : '-'}</p>
+                                </div>
+                              ) : request.status === 'approved' ? (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                  Awaiting Pickup Info
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
                             <TableCell>{format(new Date(request.created_at), 'MMM d, yyyy')}</TableCell>
                           </TableRow>
                         ))}
