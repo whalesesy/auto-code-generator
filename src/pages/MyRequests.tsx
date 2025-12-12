@@ -46,7 +46,7 @@ interface ReportData {
 }
 
 const categories = ['computing', 'mobile', 'peripherals', 'networking', 'audio_visual', 'other'];
-const statuses = ['pending', 'approved', 'rejected', 'issued', 'returned'];
+const statuses = ['pending', 'approved', 'rejected', 'issued', 'pending_return', 'returned'];
 
 export default function MyRequests() {
   const { user } = useAuth();
@@ -112,7 +112,8 @@ export default function MyRequests() {
       approved: { variant: 'default', icon: <CheckCircle className="h-3 w-3 mr-1" />, label: 'Approved - Waiting to be Issued' },
       rejected: { variant: 'destructive', icon: <XCircle className="h-3 w-3 mr-1" />, label: 'Rejected' },
       issued: { variant: 'outline', icon: <Package className="h-3 w-3 mr-1" />, label: 'Issued' },
-      returned: { variant: 'secondary', icon: <Package className="h-3 w-3 mr-1" />, label: 'Returned' },
+      pending_return: { variant: 'secondary', icon: <Clock className="h-3 w-3 mr-1" />, label: 'Return Pending Verification' },
+      returned: { variant: 'secondary', icon: <CheckCircle className="h-3 w-3 mr-1" />, label: 'Returned' },
     };
     const config = variants[status] || variants.pending;
     return (
