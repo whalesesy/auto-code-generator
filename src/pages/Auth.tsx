@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Monitor, Check, X, ArrowLeft, Chrome, KeyRound, Phone, UserCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +27,7 @@ const emailSchema = z.string().email('Invalid email address');
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -38,6 +40,7 @@ export default function Auth() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'staff' | 'approver' | 'admin'>('staff');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -122,6 +125,16 @@ export default function Auth() {
 
     if (!fullName.trim()) {
       toast({ title: 'Full name is required', variant: 'destructive' });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toast({ title: 'Passwords do not match', description: 'Please make sure your passwords match.', variant: 'destructive' });
+      return;
+    }
+
+    if (!agreedToTerms) {
+      toast({ title: 'Terms required', description: 'You must agree to the Terms and Conditions.', variant: 'destructive' });
       return;
     }
 
@@ -766,7 +779,58 @@ export default function Auth() {
                   </div>
                   <PasswordStrength checks={passwordChecks} />
                 </div>
-                <Button type="submit" className="w-full transition-all hover:scale-[1.02] hover:shadow-lg" disabled={loading}>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="confirmPassword"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                      className={`transition-all duration-300 focus:ring-2 focus:ring-primary/20 ${
+                        confirmPassword && password !== confirmPassword ? 'border-destructive' : ''
+                      }`}
+                    />
+                  </div>
+                  {confirmPassword && password !== confirmPassword && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <X className="h-3 w-3" /> Passwords do not match
+                    </p>
+                  )}
+                  {confirmPassword && password === confirmPassword && confirmPassword.length > 0 && (
+                    <p className="text-xs text-green-600 flex items-center gap-1">
+                      <Check className="h-3 w-3" /> Passwords match
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-start space-x-2">
+                  <Checkbox 
+                    id="terms" 
+                    checked={agreedToTerms}
+                    onCheckedChange={(checked) => setAgreedToTerms(checked === true)}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="terms" className="text-sm font-normal cursor-pointer">
+                    I agree to the{' '}
+                    <Link to="/terms" className="text-primary hover:underline" target="_blank">
+                      Terms and Conditions
+                    </Link>
+                    {' '}and{' '}
+                    <Link to="/privacy" className="text-primary hover:underline" target="_blank">
+                      Privacy Policy
+                    </Link>
+                  </Label>
+                </div>
+
+                <Button 
+                  type="submit" 
+                  className="w-full transition-all hover:scale-[1.02] hover:shadow-lg" 
+                  disabled={loading || !agreedToTerms || (confirmPassword && password !== confirmPassword)}
+                >
                   {loading ? 'Submitting request...' : 'Request Account'}
                 </Button>
                 <p className="text-xs text-muted-foreground text-center">
