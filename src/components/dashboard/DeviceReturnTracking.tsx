@@ -20,6 +20,8 @@ interface IssuedRequest {
   expected_return_date: string | null;
   duration: string;
   requester_id: string;
+  status: string;
+  return_verified: boolean | null;
   profiles: { full_name: string; email: string } | null;
   request_tickets: { ticket_number: string }[];
 }
@@ -27,20 +29,25 @@ interface IssuedRequest {
 export function DeviceReturnTracking() {
   const { role, user } = useAuth();
   const [issuedRequests, setIssuedRequests] = useState<IssuedRequest[]>([]);
+  const [pendingVerification, setPendingVerification] = useState<IssuedRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<IssuedRequest | null>(null);
   const [returnNotes, setReturnNotes] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [actionType, setActionType] = useState<'return' | 'verify'>('return');
 
   useEffect(() => {
-    if (user) fetchIssuedDevices();
+    if (user) {
+      fetchIssuedDevices();
+      fetchPendingVerification();
+    }
   }, [user, role]);
 
   const fetchIssuedDevices = async () => {
     let query = supabase
       .from('device_requests')
       .select(`
-        id, device_type, device_model, quantity, issued_at, expected_return_date, duration, requester_id,
+        id, device_type, device_model, quantity, issued_at, expected_return_date, duration, requester_id, status,
         profiles!device_requests_requester_id_profiles_fkey(full_name, email),
         request_tickets(ticket_number)
       `)
@@ -58,7 +65,68 @@ export function DeviceReturnTracking() {
     setLoading(false);
   };
 
-  const handleMarkAsReturned = async () => {
+  // Fetch devices pending return verification (staff marked as returned, awaiting admin verification)
+  const fetchPendingVerification = async () => {
+    if (role !== 'admin' && role !== 'approver') return;
+
+    const { data, error } = await supabase
+      .from('device_requests')
+      .select(`
+        id, device_type, device_model, quantity, issued_at, expected_return_date, duration, requester_id, status,
+        profiles!device_requests_requester_id_profiles_fkey(full_name, email),
+        request_tickets(ticket_number)
+      `)
+      .eq('status', 'pending_return')
+      .order('expected_return_date', { ascending: true });
+
+    if (error) console.error('Error fetching pending verification:', error);
+    if (data) setPendingVerification(data as any);
+  };
+
+  // Staff marks device as returned (pending verification)
+  const handleStaffReturn = async () => {
+    if (!selectedRequest) return;
+    setProcessing(true);
+
+    const { error } = await supabase
+      .from('device_requests')
+      .update({
+        status: 'pending_return',
+        approver_comments: returnNotes ? `Staff return notes: ${returnNotes}` : null,
+      })
+      .eq('id', selectedRequest.id);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      // Notify admins about pending return verification
+      const { data: adminRoles } = await supabase
+        .from('user_roles')
+        .select('user_id')
+        .in('role', ['admin', 'approver']);
+
+      if (adminRoles && adminRoles.length > 0) {
+        const notifications = adminRoles.map(r => ({
+          user_id: r.user_id,
+          title: 'Device Return Pending Verification',
+          message: `${selectedRequest.profiles?.full_name || 'A user'} has marked ${selectedRequest.device_type} as returned. Please verify.`,
+          type: 'info',
+          related_request_id: selectedRequest.id,
+        }));
+        await supabase.from('notifications').insert(notifications);
+      }
+
+      toast({ title: 'Return submitted!', description: 'Awaiting admin verification.' });
+      fetchIssuedDevices();
+    }
+
+    setSelectedRequest(null);
+    setReturnNotes('');
+    setProcessing(false);
+  };
+
+  // Admin verifies the return
+  const handleVerifyReturn = async () => {
     if (!selectedRequest) return;
     setProcessing(true);
 
@@ -67,7 +135,7 @@ export function DeviceReturnTracking() {
       .update({
         status: 'returned',
         returned_at: new Date().toISOString(),
-        approver_comments: returnNotes ? `Return notes: ${returnNotes}` : null,
+        approver_comments: returnNotes ? `Verified return notes: ${returnNotes}` : 'Return verified by admin',
       })
       .eq('id', selectedRequest.id);
 
@@ -84,10 +152,10 @@ export function DeviceReturnTracking() {
       if (ticket) {
         await supabase.from('ticket_audit_log').insert({
           ticket_id: ticket.id,
-          action: 'returned',
+          action: 'return_verified',
           performed_by: user?.id,
-          details: `Device marked as returned. Notes: ${returnNotes || 'None'}`,
-          encrypted_details: btoa(unescape(encodeURIComponent(`Device returned. Notes: ${returnNotes || 'None'}`))),
+          details: `Return verified by admin. Notes: ${returnNotes || 'None'}`,
+          encrypted_details: btoa(unescape(encodeURIComponent(`Return verified. Notes: ${returnNotes || 'None'}`))),
         });
 
         await supabase.from('request_tickets')
@@ -95,22 +163,52 @@ export function DeviceReturnTracking() {
           .eq('id', ticket.id);
       }
 
+      // Restore stock to inventory
+      try {
+        const { data: matchingDevice } = await supabase
+          .from('devices')
+          .select('id, name')
+          .or(`name.ilike.%${selectedRequest.device_type}%,name.eq.${selectedRequest.device_type}`)
+          .maybeSingle();
+
+        if (matchingDevice) {
+          await supabase.from('stock_movements').insert({
+            device_id: matchingDevice.id,
+            movement_type: 'in',
+            quantity: selectedRequest.quantity,
+            reason: `Returned by ${selectedRequest.profiles?.full_name || 'user'} - Request ID: ${selectedRequest.id}`,
+            performed_by: user?.id,
+          });
+        }
+      } catch (stockError) {
+        console.error('Failed to restore stock:', stockError);
+      }
+
       // Notify the user
       await supabase.from('notifications').insert({
         user_id: selectedRequest.requester_id,
-        title: 'Device Returned',
-        message: `Your ${selectedRequest.device_type} has been marked as returned. Thank you!`,
+        title: 'Device Return Verified',
+        message: `Your ${selectedRequest.device_type} return has been verified. Thank you!`,
         type: 'success',
         related_request_id: selectedRequest.id,
       });
 
-      toast({ title: 'Device marked as returned!', description: 'The request has been updated.' });
+      toast({ title: 'Return verified!', description: 'Stock has been restored to inventory.' });
       fetchIssuedDevices();
+      fetchPendingVerification();
     }
 
     setSelectedRequest(null);
     setReturnNotes('');
     setProcessing(false);
+  };
+
+  const handleAction = () => {
+    if (actionType === 'return') {
+      handleStaffReturn();
+    } else {
+      handleVerifyReturn();
+    }
   };
 
   const getDaysInfo = (expectedDate: string | null) => {
@@ -141,11 +239,75 @@ export function DeviceReturnTracking() {
     );
   }
 
-  // Show for all roles - staff sees their own, admins/approvers see all and can mark as returned
-  const canMarkReturned = role === 'admin' || role === 'approver';
+  // Staff can initiate return, admins/approvers can verify returns
+  const canInitiateReturn = role === 'staff';
+  const canVerifyReturn = role === 'admin' || role === 'approver';
 
   return (
     <>
+      {/* Pending Verification Section (Admins/Approvers only) */}
+      {canVerifyReturn && pendingVerification.length > 0 && (
+        <Card className="border-amber-500/50 mb-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center justify-between text-amber-700 dark:text-amber-400">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="h-5 w-5" />
+                Returns Pending Verification
+              </div>
+              <Badge variant="secondary">{pendingVerification.length} awaiting</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ticket</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Device</TableHead>
+                    <TableHead>Qty</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingVerification.map((request) => (
+                    <TableRow key={request.id}>
+                      <TableCell className="font-mono text-xs">
+                        {request.request_tickets?.[0]?.ticket_number || '-'}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {request.profiles?.full_name || 'Unknown'}
+                      </TableCell>
+                      <TableCell>
+                        {request.device_type}
+                        {request.device_model && (
+                          <span className="text-muted-foreground text-xs ml-1">({request.device_model})</span>
+                        )}
+                      </TableCell>
+                      <TableCell>{request.quantity}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => {
+                            setSelectedRequest(request);
+                            setActionType('verify');
+                          }}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Verify Return
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Issued Devices Section */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
@@ -176,6 +338,7 @@ export function DeviceReturnTracking() {
                 <TableBody>
                   {issuedRequests.map((request) => {
                     const daysInfo = getDaysInfo(request.expected_return_date);
+                    const isOwnRequest = request.requester_id === user?.id;
                     return (
                       <TableRow 
                         key={request.id}
@@ -205,11 +368,29 @@ export function DeviceReturnTracking() {
                           <Badge variant={daysInfo.variant}>{daysInfo.text}</Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          {canMarkReturned && (
+                          {/* Staff can initiate return for their own devices */}
+                          {isOwnRequest && (
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => setSelectedRequest(request)}
+                              onClick={() => {
+                                setSelectedRequest(request);
+                                setActionType('return');
+                              }}
+                            >
+                              <RotateCcw className="h-4 w-4 mr-1" />
+                              Return Device
+                            </Button>
+                          )}
+                          {/* Admins can directly mark as returned (skip verification) */}
+                          {canVerifyReturn && !isOwnRequest && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedRequest(request);
+                                setActionType('verify');
+                              }}
                             >
                               <CheckCircle className="h-4 w-4 mr-1" />
                               Mark Returned
@@ -226,23 +407,31 @@ export function DeviceReturnTracking() {
         </CardContent>
       </Card>
 
-      {/* Return Dialog */}
+      {/* Return/Verify Dialog */}
       <Dialog open={!!selectedRequest} onOpenChange={() => setSelectedRequest(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-500" />
-              Mark Device as Returned
+              {actionType === 'return' ? 'Return Device' : 'Verify Device Return'}
             </DialogTitle>
             <DialogDescription>
-              Confirm that {selectedRequest?.profiles?.full_name} has returned the {selectedRequest?.device_type}.
+              {actionType === 'return' 
+                ? `Submit a return request for ${selectedRequest?.device_type}. An admin will verify the return.`
+                : `Confirm that ${selectedRequest?.profiles?.full_name} has returned the ${selectedRequest?.device_type}. This will restore stock to inventory.`
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Return Notes (Optional)</label>
+              <label className="text-sm font-medium">
+                {actionType === 'return' ? 'Return Notes (Optional)' : 'Verification Notes (Optional)'}
+              </label>
               <Textarea
-                placeholder="Add any notes about the device condition, etc."
+                placeholder={actionType === 'return' 
+                  ? "Add any notes about the device condition, etc."
+                  : "Add verification notes, device condition, etc."
+                }
                 value={returnNotes}
                 onChange={(e) => setReturnNotes(e.target.value)}
               />
@@ -252,8 +441,13 @@ export function DeviceReturnTracking() {
             <Button variant="outline" onClick={() => setSelectedRequest(null)}>
               Cancel
             </Button>
-            <Button onClick={handleMarkAsReturned} disabled={processing}>
-              {processing ? 'Processing...' : 'Confirm Return'}
+            <Button onClick={handleAction} disabled={processing}>
+              {processing 
+                ? 'Processing...' 
+                : actionType === 'return' 
+                  ? 'Submit Return' 
+                  : 'Verify & Complete Return'
+              }
             </Button>
           </DialogFooter>
         </DialogContent>

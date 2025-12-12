@@ -82,6 +82,28 @@ export default function Approvals() {
     fetchPendingRequests();
     fetchApprovedRequests();
     fetchIssuedRequests();
+
+    // Subscribe to real-time updates for new pending requests
+    const channel = supabase
+      .channel('pending-requests')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'device_requests',
+          filter: 'status=eq.pending',
+        },
+        (payload) => {
+          // Refresh pending requests when a new one is added
+          fetchPendingRequests();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchPendingRequests = async () => {
@@ -243,6 +265,29 @@ export default function Approvals() {
       updateData.issued_at = new Date().toISOString();
       updateData.pickup_location = pickupLocation;
       updateData.pickup_time = pickupTime ? new Date(pickupTime).toISOString() : new Date().toISOString();
+
+      // Auto-deduct from inventory when device is issued
+      try {
+        // Find matching device in inventory
+        const { data: matchingDevice } = await supabase
+          .from('devices')
+          .select('id, name')
+          .or(`name.ilike.%${selectedRequest.device_type}%,name.eq.${selectedRequest.device_type}`)
+          .maybeSingle();
+
+        if (matchingDevice) {
+          // Create stock out movement
+          await supabase.from('stock_movements').insert({
+            device_id: matchingDevice.id,
+            movement_type: 'out',
+            quantity: selectedRequest.quantity,
+            reason: `Issued to ${selectedRequest.profiles?.full_name || 'user'} - Request ID: ${selectedRequest.id}`,
+            performed_by: user?.id,
+          });
+        }
+      } catch (stockError) {
+        console.error('Failed to deduct stock:', stockError);
+      }
     }
 
     const { error } = await supabase

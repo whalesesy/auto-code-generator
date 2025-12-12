@@ -639,6 +639,7 @@ export type Database = {
         | "rejected"
         | "issued"
         | "returned"
+        | "pending_return"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -776,7 +777,14 @@ export const Constants = {
         "other",
       ],
       device_status: ["available", "issued", "maintenance", "damaged", "lost"],
-      request_status: ["pending", "approved", "rejected", "issued", "returned"],
+      request_status: [
+        "pending",
+        "approved",
+        "rejected",
+        "issued",
+        "returned",
+        "pending_return",
+      ],
     },
   },
 } as const

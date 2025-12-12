@@ -162,6 +162,31 @@ export default function RequestDevice() {
     if (error) {
       toast({ title: 'Failed to submit request', description: error.message, variant: 'destructive' });
     } else {
+      // Notify all approvers and admins about the new request
+      try {
+        const { data: approverRoles } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .in('role', ['approver', 'admin']);
+
+        if (approverRoles && approverRoles.length > 0) {
+          const notifications = approverRoles
+            .filter(r => r.user_id !== user?.id) // Don't notify the requester if they're an admin/approver
+            .map(r => ({
+              user_id: r.user_id,
+              title: 'New Device Request',
+              message: `A new request for ${formData.device_type} has been submitted and is awaiting approval.`,
+              type: 'info',
+            }));
+
+          if (notifications.length > 0) {
+            await supabase.from('notifications').insert(notifications);
+          }
+        }
+      } catch (notifyError) {
+        console.error('Failed to notify approvers:', notifyError);
+      }
+
       toast({ title: 'Request submitted!', description: 'Your request is now pending approval.' });
       navigate('/my-requests');
     }
