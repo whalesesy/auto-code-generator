@@ -603,38 +603,40 @@ export default function Auth() {
                   </Button>
                 </div>
 
-                <div>
-                  <p className="text-sm text-muted-foreground text-center mb-3">Quick demo access:</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleDemoLogin('staff')} 
-                      disabled={loading}
-                      className="transition-all hover:scale-[1.02] hover:border-primary/50"
-                    >
-                      Staff
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleDemoLogin('approver')} 
-                      disabled={loading}
-                      className="transition-all hover:scale-[1.02] hover:border-primary/50"
-                    >
-                      Approver
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleDemoLogin('admin')} 
-                      disabled={loading}
-                      className="transition-all hover:scale-[1.02] hover:border-primary/50"
-                    >
-                      Admin
-                    </Button>
+                {import.meta.env.DEV && (
+                  <div>
+                    <p className="text-sm text-muted-foreground text-center mb-3">Quick demo access (dev only):</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleDemoLogin('staff')} 
+                        disabled={loading}
+                        className="transition-all hover:scale-[1.02] hover:border-primary/50"
+                      >
+                        Staff
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleDemoLogin('approver')} 
+                        disabled={loading}
+                        className="transition-all hover:scale-[1.02] hover:border-primary/50"
+                      >
+                        Approver
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleDemoLogin('admin')} 
+                        disabled={loading}
+                        className="transition-all hover:scale-[1.02] hover:border-primary/50"
+                      >
+                        Admin
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </TabsContent>
 

@@ -14,6 +14,15 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from '@/hooks/use-toast';
 import { MessageSquare, Send, User, Inbox, ArrowLeft, Reply } from 'lucide-react';
 import { format } from 'date-fns';
+import { z } from 'zod';
+
+// Validation schema for feedback
+const feedbackSchema = z.object({
+  recipient_type: z.enum(['admin', 'approver', 'user']),
+  recipient_id: z.string().optional(),
+  subject: z.string().min(1, 'Subject is required').max(200, 'Subject must be less than 200 characters'),
+  message: z.string().min(1, 'Message is required').max(5000, 'Message must be less than 5000 characters'),
+});
 
 interface FeedbackItem {
   id: string;
@@ -116,8 +125,17 @@ export default function Feedback() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.subject.trim() || !formData.message.trim()) {
-      toast({ title: 'Please fill all required fields', variant: 'destructive' });
+    // Validate form data with Zod schema
+    const validation = feedbackSchema.safeParse({
+      recipient_type: formData.recipient_type,
+      recipient_id: formData.recipient_id || undefined,
+      subject: formData.subject.trim(),
+      message: formData.message.trim(),
+    });
+
+    if (!validation.success) {
+      const firstError = validation.error.errors[0];
+      toast({ title: firstError.message, variant: 'destructive' });
       return;
     }
 
@@ -128,16 +146,12 @@ export default function Feedback() {
 
     setLoading(true);
 
-    // Encrypt message content
-    const encryptedContent = btoa(unescape(encodeURIComponent(formData.message)));
-
     const { error } = await supabase.from('feedback').insert({
       sender_id: user?.id,
       recipient_type: formData.recipient_type,
       recipient_id: formData.recipient_type === 'user' ? formData.recipient_id : null,
-      subject: formData.subject,
-      message: formData.message,
-      encrypted_content: encryptedContent,
+      subject: formData.subject.trim(),
+      message: formData.message.trim(),
     });
 
     setLoading(false);
@@ -152,22 +166,27 @@ export default function Feedback() {
   };
 
   const handleReply = async () => {
-    if (!selectedFeedback || !replyMessage.trim()) {
+    if (!selectedFeedback) return;
+    
+    const trimmedReply = replyMessage.trim();
+    if (!trimmedReply) {
       toast({ title: 'Please enter a reply message', variant: 'destructive' });
+      return;
+    }
+
+    if (trimmedReply.length > 5000) {
+      toast({ title: 'Reply must be less than 5000 characters', variant: 'destructive' });
       return;
     }
 
     setLoading(true);
 
-    const encryptedContent = btoa(unescape(encodeURIComponent(replyMessage)));
-
     const { error } = await supabase.from('feedback').insert({
       sender_id: user?.id,
       recipient_type: 'user',
       recipient_id: selectedFeedback.sender_id,
-      subject: `Re: ${selectedFeedback.subject}`,
-      message: replyMessage,
-      encrypted_content: encryptedContent,
+      subject: `Re: ${selectedFeedback.subject}`.slice(0, 200),
+      message: trimmedReply,
     });
 
     setLoading(false);
@@ -255,21 +274,23 @@ export default function Feedback() {
                   )}
 
                   <div className="space-y-2">
-                    <Label>Subject *</Label>
+                    <Label>Subject * <span className="text-xs text-muted-foreground">({formData.subject.length}/200)</span></Label>
                     <Input
                       placeholder="Feedback subject"
                       value={formData.subject}
-                      onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, subject: e.target.value.slice(0, 200) })}
+                      maxLength={200}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Message *</Label>
+                    <Label>Message * <span className="text-xs text-muted-foreground">({formData.message.length}/5000)</span></Label>
                     <Textarea
                       placeholder="Write your feedback here..."
                       value={formData.message}
-                      onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, message: e.target.value.slice(0, 5000) })}
                       rows={5}
+                      maxLength={5000}
                     />
                   </div>
 
