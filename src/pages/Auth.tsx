@@ -293,27 +293,30 @@ export default function Auth() {
     }
   };
 
-  const handleDemoLogin = async (role: 'admin' | 'approver' | 'staff') => {
-    const demoCredentials = {
-      admin: { email: 'admin@demo.com', password: 'Demo@123456' },
-      approver: { email: 'approver@demo.com', password: 'Demo@123456' },
-      staff: { email: 'staff@demo.com', password: 'Demo@123456' },
-    };
+  // Demo login only available in development mode
+  const handleDemoLogin = import.meta.env.DEV 
+    ? async (role: 'admin' | 'approver' | 'staff') => {
+        const demoCredentials = {
+          admin: { email: 'admin@demo.com', password: 'Demo@123456' },
+          approver: { email: 'approver@demo.com', password: 'Demo@123456' },
+          staff: { email: 'staff@demo.com', password: 'Demo@123456' },
+        };
 
-    setLoading(true);
-    const { error } = await signIn(demoCredentials[role].email, demoCredentials[role].password);
-    setLoading(false);
+        setLoading(true);
+        const { error } = await signIn(demoCredentials[role].email, demoCredentials[role].password);
+        setLoading(false);
 
-    if (error) {
-      toast({ 
-        title: 'Demo account not set up', 
-        description: 'Please create a regular account or contact admin to set up demo accounts.',
-        variant: 'destructive' 
-      });
-    } else {
-      navigate('/dashboard');
-    }
-  };
+        if (error) {
+          toast({ 
+            title: 'Demo account not set up', 
+            description: 'Please create a regular account or contact admin to set up demo accounts.',
+            variant: 'destructive' 
+          });
+        } else {
+          navigate('/dashboard');
+        }
+      }
+    : undefined;
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
