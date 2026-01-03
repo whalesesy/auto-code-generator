@@ -12,6 +12,7 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { useLowStockAlert } from '@/hooks/useLowStockAlert';
 import { OverdueReturnsWidget } from '@/components/dashboard/OverdueReturnsWidget';
 import { DeviceReturnTracking } from '@/components/dashboard/DeviceReturnTracking';
+import { SecurityAuditLogs } from '@/components/dashboard/SecurityAuditLogs';
 
 interface Stats {
   pending: number;
@@ -327,6 +328,9 @@ export default function Dashboard() {
 
         {/* Device Return Tracking - All roles can view their issued devices */}
         <DeviceReturnTracking />
+
+        {/* Security Audit Logs - Admin only */}
+        {role === 'admin' && <SecurityAuditLogs />}
 
         {/* Recent Activity & FAQ */}
         <div className="grid gap-4 md:grid-cols-2">
