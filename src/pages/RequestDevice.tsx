@@ -13,7 +13,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { CalendarIcon, Send, AlertCircle } from 'lucide-react';
+import { CalendarIcon, Send, AlertCircle, AlertTriangle, Wrench, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { z } from 'zod';
@@ -34,7 +34,19 @@ interface InventoryDevice {
   category: string;
   model: string | null;
   current_stock: number;
+  status: string;
 }
+
+const getDeviceStatusInfo = (status: string) => {
+  const statusMap: Record<string, { label: string; color: string; canRequest: boolean }> = {
+    available: { label: 'Available', color: 'text-green-600', canRequest: true },
+    maintenance: { label: 'Under Maintenance', color: 'text-amber-600', canRequest: false },
+    damaged: { label: 'Damaged', color: 'text-red-600', canRequest: false },
+    issued: { label: 'Issued', color: 'text-blue-600', canRequest: true },
+    lost: { label: 'Lost', color: 'text-destructive', canRequest: false },
+  };
+  return statusMap[status] || { label: status, color: 'text-muted-foreground', canRequest: true };
+};
 
 const categories = [
   { value: 'computing', label: 'Computing (Laptops, Desktops)' },
@@ -96,16 +108,34 @@ export default function RequestDevice() {
           category: device.category,
           model: device.model,
           current_stock: stock_in - stock_out,
+          status: device.status,
         };
-      }).filter(d => d.current_stock > 0); // Only show devices with available stock
+      });
       setInventoryDevices(devicesWithStock);
     }
   };
 
-  // Filter devices by selected category
+  // Filter devices by selected category - show all devices but indicate availability
   const filteredDevices = formData.device_category
     ? inventoryDevices.filter(d => d.category === formData.device_category)
     : inventoryDevices;
+
+  // Get requestable devices (available status and has stock)
+  const requestableDevices = filteredDevices.filter(d => {
+    const statusInfo = getDeviceStatusInfo(d.status);
+    return statusInfo.canRequest && d.current_stock > 0;
+  });
+
+  // Get unavailable devices to show in UI
+  const unavailableDevices = filteredDevices.filter(d => {
+    const statusInfo = getDeviceStatusInfo(d.status);
+    return !statusInfo.canRequest || d.current_stock <= 0;
+  });
+
+  // Check if selected device is valid
+  const selectedDevice = inventoryDevices.find(d => d.name === formData.device_type);
+  const selectedDeviceStatus = selectedDevice ? getDeviceStatusInfo(selectedDevice.status) : null;
+  const isSelectedDeviceUnavailable = selectedDevice && (!selectedDeviceStatus?.canRequest || selectedDevice.current_stock <= 0);
 
   // Check if manually entered device exists in inventory
   const checkDeviceExists = (deviceType: string) => {
@@ -122,6 +152,36 @@ export default function RequestDevice() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Check if selected device is unavailable (damaged/maintenance)
+    const deviceToRequest = inventoryDevices.find(d => d.name === formData.device_type);
+    if (deviceToRequest) {
+      const statusInfo = getDeviceStatusInfo(deviceToRequest.status);
+      if (!statusInfo.canRequest) {
+        toast({ 
+          title: 'Device unavailable', 
+          description: `This device is currently ${statusInfo.label.toLowerCase()}. Please select a different device.`,
+          variant: 'destructive' 
+        });
+        return;
+      }
+      if (deviceToRequest.current_stock <= 0) {
+        toast({ 
+          title: 'Device out of stock', 
+          description: 'This device is currently out of stock. Please select a different device.',
+          variant: 'destructive' 
+        });
+        return;
+      }
+      if (deviceToRequest.current_stock < formData.quantity) {
+        toast({ 
+          title: 'Insufficient stock', 
+          description: `Only ${deviceToRequest.current_stock} units available. Please reduce the quantity.`,
+          variant: 'destructive' 
+        });
+        return;
+      }
+    }
 
     // Validate with Zod schema
     const validation = deviceRequestSchema.safeParse({
@@ -211,6 +271,43 @@ export default function RequestDevice() {
                 </Alert>
               )}
 
+              {isSelectedDeviceUnavailable && selectedDevice && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>{selectedDevice.name}</strong> is currently{' '}
+                    {selectedDeviceStatus?.label.toLowerCase() || 'unavailable'}
+                    {selectedDevice.current_stock <= 0 && selectedDeviceStatus?.canRequest && ' (out of stock)'}. 
+                    Please select a different device.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Show unavailable devices info if any exist in category */}
+              {unavailableDevices.length > 0 && formData.device_category && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <span className="font-medium">Some devices in this category are unavailable:</span>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {unavailableDevices.map(device => {
+                        const statusInfo = getDeviceStatusInfo(device.status);
+                        return (
+                          <li key={device.id} className="flex items-center gap-2">
+                            {device.status === 'maintenance' && <Wrench className="h-3 w-3 text-amber-600" />}
+                            {device.status === 'damaged' && <AlertTriangle className="h-3 w-3 text-red-600" />}
+                            <span>{device.name}</span>
+                            <span className={`text-xs ${statusInfo.color}`}>
+                              ({statusInfo.label}{device.current_stock <= 0 && statusInfo.canRequest ? ' - Out of stock' : ''})
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="category">Device Category *</Label>
@@ -231,7 +328,7 @@ export default function RequestDevice() {
 
                 <div className="space-y-2">
                   <Label htmlFor="device_type">Device Type *</Label>
-                  {filteredDevices.length > 0 ? (
+                  {requestableDevices.length > 0 ? (
                     <Select
                       value={formData.device_type}
                       onValueChange={(value) => {
@@ -248,11 +345,18 @@ export default function RequestDevice() {
                         <SelectValue placeholder="Select device from inventory" />
                       </SelectTrigger>
                       <SelectContent>
-                        {filteredDevices.map(device => (
-                          <SelectItem key={device.id} value={device.name}>
-                            {device.name} {device.model ? `(${device.model})` : ''} - {device.current_stock} available
-                          </SelectItem>
-                        ))}
+                        {requestableDevices.map(device => {
+                          const statusInfo = getDeviceStatusInfo(device.status);
+                          return (
+                            <SelectItem key={device.id} value={device.name}>
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="h-3 w-3 text-green-600" />
+                                <span>{device.name} {device.model ? `(${device.model})` : ''}</span>
+                                <span className="text-muted-foreground">- {device.current_stock} available</span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   ) : (
@@ -266,8 +370,12 @@ export default function RequestDevice() {
                       }}
                     />
                   )}
-                  {filteredDevices.length === 0 && formData.device_category && (
-                    <p className="text-xs text-muted-foreground">No devices available in this category. Enter device type manually.</p>
+                  {requestableDevices.length === 0 && formData.device_category && (
+                    <p className="text-xs text-muted-foreground">
+                      No available devices in this category. 
+                      {unavailableDevices.length > 0 && ' All devices are either under maintenance, damaged, or out of stock.'}
+                      {unavailableDevices.length === 0 && ' Enter device type manually.'}
+                    </p>
                   )}
                 </div>
               </div>
