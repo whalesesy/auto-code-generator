@@ -53,6 +53,85 @@ function base32Decode(input: string): Uint8Array {
   return new Uint8Array(output);
 }
 
+// AES-GCM encryption for TOTP secrets
+async function getEncryptionKey(): Promise<CryptoKey> {
+  const keyData = Deno.env.get("TOTP_ENCRYPTION_KEY");
+  if (!keyData) {
+    throw new Error("TOTP_ENCRYPTION_KEY not configured");
+  }
+  
+  // Decode base64 key (32 bytes for AES-256)
+  const keyBytes = Uint8Array.from(atob(keyData), c => c.charCodeAt(0));
+  
+  return await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptSecret(plaintext: string): Promise<string> {
+  const key = await getEncryptionKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encodedText = new TextEncoder().encode(plaintext);
+  
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encodedText
+  );
+  
+  // Combine IV + ciphertext
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptSecret(encryptedData: string): Promise<string> {
+  try {
+    const key = await getEncryptionKey();
+    const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+    
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext
+    );
+    
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    // Fallback for unencrypted legacy secrets (base32 format)
+    // Check if it looks like a base32 secret
+    if (/^[A-Z2-7]+$/.test(encryptedData)) {
+      console.log("Legacy unencrypted secret detected, will be encrypted on next update");
+      return encryptedData;
+    }
+    throw new Error("Failed to decrypt secret");
+  }
+}
+
+// Encrypt backup codes array
+async function encryptBackupCodes(codes: string[]): Promise<string> {
+  return await encryptSecret(JSON.stringify(codes));
+}
+
+async function decryptBackupCodes(encryptedCodes: string): Promise<string[]> {
+  try {
+    const decrypted = await decryptSecret(encryptedCodes);
+    return JSON.parse(decrypted);
+  } catch {
+    // Fallback for legacy unencrypted backup codes stored as array
+    return [];
+  }
+}
+
 // Generate TOTP code
 async function generateTOTP(secret: string, timeStep = 30): Promise<string> {
   const key = base32Decode(secret);
@@ -151,6 +230,16 @@ const handler = async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     
+    // Check if encryption key is configured
+    const encryptionKey = Deno.env.get("TOTP_ENCRYPTION_KEY");
+    if (!encryptionKey) {
+      console.error("TOTP_ENCRYPTION_KEY not configured");
+      return new Response(JSON.stringify({ error: "MFA service not properly configured" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+    
     // Get user from auth header
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -199,18 +288,22 @@ const handler = async (req: Request): Promise<Response> => {
         const secret = generateSecret();
         const backupCodes = generateBackupCodes();
         
-        // Upsert the secret (not enabled until verified)
+        // Encrypt the secret and backup codes before storing
+        const encryptedSecret = await encryptSecret(secret);
+        const encryptedBackupCodes = await encryptBackupCodes(backupCodes);
+        
+        // Upsert the encrypted secret (not enabled until verified)
         await supabaseAdmin
           .from("user_totp_secrets")
           .upsert({
             user_id: user.id,
-            encrypted_secret: secret, // In production, encrypt this
-            backup_codes: backupCodes,
+            encrypted_secret: encryptedSecret,
+            backup_codes: [encryptedBackupCodes], // Store as array with single encrypted string
             is_enabled: false,
             created_at: new Date().toISOString()
           }, { onConflict: "user_id" });
         
-        // Generate TOTP URI for QR code
+        // Generate TOTP URI for QR code (using plaintext secret for the client)
         const issuer = "DeviceHub";
         const accountName = user.email || user.id;
         const otpAuthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
@@ -246,7 +339,9 @@ const handler = async (req: Request): Promise<Response> => {
           });
         }
         
-        const isValid = await verifyTOTP(totpData.encrypted_secret, code);
+        // Decrypt the secret before verification
+        const plainSecret = await decryptSecret(totpData.encrypted_secret);
+        const isValid = await verifyTOTP(plainSecret, code);
         
         return new Response(JSON.stringify({ valid: isValid }), {
           status: 200,
@@ -275,7 +370,9 @@ const handler = async (req: Request): Promise<Response> => {
           });
         }
         
-        const isValid = await verifyTOTP(totpData.encrypted_secret, code);
+        // Decrypt the secret before verification
+        const plainSecret = await decryptSecret(totpData.encrypted_secret);
+        const isValid = await verifyTOTP(plainSecret, code);
         
         if (!isValid) {
           return new Response(JSON.stringify({ error: "Invalid verification code" }), {
@@ -326,7 +423,9 @@ const handler = async (req: Request): Promise<Response> => {
           });
         }
         
-        const isValid = await verifyTOTP(totpData.encrypted_secret, code);
+        // Decrypt the secret before verification
+        const plainSecret = await decryptSecret(totpData.encrypted_secret);
+        const isValid = await verifyTOTP(plainSecret, code);
         
         if (!isValid) {
           return new Response(JSON.stringify({ error: "Invalid verification code" }), {
@@ -367,15 +466,24 @@ const handler = async (req: Request): Promise<Response> => {
           .eq("user_id", user.id)
           .single();
         
-        if (!totpData || !totpData.backup_codes) {
+        if (!totpData || !totpData.backup_codes || totpData.backup_codes.length === 0) {
           return new Response(JSON.stringify({ error: "No backup codes found" }), {
             status: 400,
             headers: { "Content-Type": "application/json", ...corsHeaders },
           });
         }
         
+        // Decrypt backup codes (stored as single encrypted string in array)
+        let backupCodes: string[];
+        try {
+          backupCodes = await decryptBackupCodes(totpData.backup_codes[0]);
+        } catch {
+          // Fallback for legacy unencrypted backup codes
+          backupCodes = totpData.backup_codes;
+        }
+        
         const upperCode = code.toUpperCase();
-        const codeIndex = totpData.backup_codes.indexOf(upperCode);
+        const codeIndex = backupCodes.indexOf(upperCode);
         
         if (codeIndex === -1) {
           return new Response(JSON.stringify({ valid: false, error: "Invalid backup code" }), {
@@ -384,11 +492,13 @@ const handler = async (req: Request): Promise<Response> => {
           });
         }
         
-        // Remove used backup code
-        const newBackupCodes = totpData.backup_codes.filter((_: string, i: number) => i !== codeIndex);
+        // Remove used backup code and re-encrypt
+        const newBackupCodes = backupCodes.filter((_: string, i: number) => i !== codeIndex);
+        const encryptedNewCodes = await encryptBackupCodes(newBackupCodes);
+        
         await supabaseAdmin
           .from("user_totp_secrets")
-          .update({ backup_codes: newBackupCodes })
+          .update({ backup_codes: [encryptedNewCodes] })
           .eq("user_id", user.id);
         
         return new Response(JSON.stringify({ 
