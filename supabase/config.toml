@@ -8,3 +8,15 @@ verify_jwt = true
 
 [functions.send-device-issued-notification]
 verify_jwt = true
+
+[functions.send-signup-notification]
+verify_jwt = false
+
+[functions.site-chatbot]
+verify_jwt = false
+
+[functions.totp-manage]
+verify_jwt = false
+
+[functions.security-check]
+verify_jwt = false
