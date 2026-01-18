@@ -142,6 +142,20 @@ export default function SignupApprovals() {
         });
       }
       
+      // Send approval email notification
+      try {
+        await supabase.functions.invoke('send-signup-notification', {
+          body: {
+            email: selectedRequest.email,
+            fullName: selectedRequest.full_name,
+            status: 'approved',
+            role: selectedRequest.requested_role
+          }
+        });
+      } catch (emailError) {
+        console.error('Failed to send approval email:', emailError);
+      }
+      
       toast({ title: 'Request approved', description: `${selectedRequest.full_name}'s account has been activated with ${selectedRequest.requested_role} role.` });
     } else {
       // Reject the request
@@ -159,6 +173,20 @@ export default function SignupApprovals() {
         toast({ title: 'Error rejecting request', description: updateError.message, variant: 'destructive' });
         setProcessing(false);
         return;
+      }
+      
+      // Send rejection email notification
+      try {
+        await supabase.functions.invoke('send-signup-notification', {
+          body: {
+            email: selectedRequest.email,
+            fullName: selectedRequest.full_name,
+            status: 'rejected',
+            rejectionReason: rejectionReason
+          }
+        });
+      } catch (emailError) {
+        console.error('Failed to send rejection email:', emailError);
       }
       
       toast({ title: 'Request rejected', description: `${selectedRequest.full_name}'s signup request has been rejected.` });
