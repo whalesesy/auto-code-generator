@@ -117,11 +117,15 @@ export default function SignupApprovals() {
         .single();
       
       if (profileData) {
-        // Update user role
+        // Upsert user role (create if not exists, update if exists)
         await supabase
           .from('user_roles')
-          .update({ role: selectedRequest.requested_role })
-          .eq('user_id', profileData.user_id);
+          .upsert({ 
+            user_id: profileData.user_id, 
+            role: selectedRequest.requested_role 
+          }, { 
+            onConflict: 'user_id' 
+          });
         
         // Mark profile as approved
         await supabase
