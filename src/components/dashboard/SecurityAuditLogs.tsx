@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Shield, Search, RefreshCw, AlertTriangle, LogIn, LogOut, UserX, Key, Clock, Download, FileText, FileSpreadsheet } from 'lucide-react';
+import { Shield, Search, RefreshCw, AlertTriangle, LogIn, LogOut, UserX, Key, Clock, Download, FileText, FileSpreadsheet, Radio } from 'lucide-react';
 import { format } from 'date-fns';
 import { exportToCSV, exportToPDF } from '@/lib/export';
 import { toast } from 'sonner';
@@ -41,10 +41,29 @@ export function SecurityAuditLogs() {
   const [logs, setLogs] = useState<SecurityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [isLive, setIsLive] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const pageSize = 20;
+
+  // Helper functions defined before they're used
+  const getEventConfig = useCallback((eventType: string) => {
+    return EVENT_TYPE_CONFIG[eventType] || { 
+      label: eventType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+      icon: <Clock className="h-3 w-3" />, 
+      variant: 'outline' as const 
+    };
+  }, []);
+
+  const formatUserAgent = useCallback((ua: string | null) => {
+    if (!ua) return 'Unknown';
+    if (ua.includes('Chrome')) return 'Chrome';
+    if (ua.includes('Firefox')) return 'Firefox';
+    if (ua.includes('Safari')) return 'Safari';
+    if (ua.includes('Edge')) return 'Edge';
+    return 'Other';
+  }, []);
 
   const fetchAllLogsForExport = async () => {
     setExporting(true);
@@ -135,35 +154,80 @@ export function SecurityAuditLogs() {
     fetchLogs();
   }, [page, eventFilter, searchTerm]);
 
-  const getEventConfig = (eventType: string) => {
-    return EVENT_TYPE_CONFIG[eventType] || { 
-      label: eventType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-      icon: <Clock className="h-3 w-3" />, 
-      variant: 'outline' as const 
-    };
-  };
+  // Real-time subscription for new security events
+  useEffect(() => {
+    if (!isLive) return;
 
-  const formatUserAgent = (ua: string | null) => {
-    if (!ua) return 'Unknown';
-    if (ua.includes('Chrome')) return 'Chrome';
-    if (ua.includes('Firefox')) return 'Firefox';
-    if (ua.includes('Safari')) return 'Safari';
-    if (ua.includes('Edge')) return 'Edge';
-    return 'Other';
-  };
+    console.log('Setting up realtime subscription for security_audit_logs');
+    
+    const channel = supabase
+      .channel('security-logs-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'security_audit_logs',
+        },
+        (payload) => {
+          console.log('New security event received:', payload);
+          const newLog = payload.new as SecurityLog;
+          
+          // Only add to list if on first page and matches filters
+          if (page === 0) {
+            const matchesFilter = eventFilter === 'all' || newLog.event_type === eventFilter;
+            const matchesSearch = !searchTerm || 
+              (newLog.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+               newLog.ip_address?.toLowerCase().includes(searchTerm.toLowerCase()));
+            
+            if (matchesFilter && matchesSearch) {
+              setLogs(prev => [newLog, ...prev.slice(0, pageSize - 1)]);
+              toast.info(`New security event: ${getEventConfig(newLog.event_type).label}`, {
+                description: newLog.email || 'System event',
+              });
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up realtime subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [isLive, page, eventFilter, searchTerm, getEventConfig]);
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5" />
-              Security Audit Logs
-            </CardTitle>
-            <CardDescription>Monitor authentication and security events</CardDescription>
+          <div className="flex items-center gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Security Audit Logs
+                {isLive && (
+                  <Badge variant="outline" className="ml-2 flex items-center gap-1 text-green-600 border-green-600">
+                    <Radio className="h-3 w-3 animate-pulse" />
+                    Live
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription>Monitor authentication and security events</CardDescription>
+            </div>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant={isLive ? "default" : "outline"}
+              size="sm"
+              onClick={() => setIsLive(!isLive)}
+              className={isLive ? "bg-green-600 hover:bg-green-700" : ""}
+            >
+              <Radio className={`h-4 w-4 mr-2 ${isLive ? 'animate-pulse' : ''}`} />
+              {isLive ? 'Live' : 'Paused'}
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" disabled={exporting}>
