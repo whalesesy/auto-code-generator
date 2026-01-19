@@ -7,8 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Shield, Search, RefreshCw, AlertTriangle, LogIn, LogOut, UserX, Key, Clock } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Shield, Search, RefreshCw, AlertTriangle, LogIn, LogOut, UserX, Key, Clock, Download, FileText, FileSpreadsheet } from 'lucide-react';
 import { format } from 'date-fns';
+import { exportToCSV, exportToPDF } from '@/lib/export';
+import { toast } from 'sonner';
 
 import { Json } from '@/integrations/supabase/types';
 
@@ -37,10 +40,64 @@ const EVENT_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; 
 export function SecurityAuditLogs() {
   const [logs, setLogs] = useState<SecurityLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const pageSize = 20;
+
+  const fetchAllLogsForExport = async () => {
+    setExporting(true);
+    try {
+      let query = supabase
+        .from('security_audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (eventFilter !== 'all') {
+        query = query.eq('event_type', eventFilter);
+      }
+
+      if (searchTerm) {
+        query = query.or(`email.ilike.%${searchTerm}%,ip_address.ilike.%${searchTerm}%`);
+      }
+
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      
+      return (data || []).map(log => ({
+        event_type: getEventConfig(log.event_type).label,
+        email: log.email || 'N/A',
+        ip_address: log.ip_address || 'N/A',
+        user_agent: formatUserAgent(log.user_agent),
+        timestamp: format(new Date(log.created_at), 'yyyy-MM-dd HH:mm:ss'),
+      }));
+    } catch (err) {
+      console.error('Failed to fetch logs for export:', err);
+      toast.error('Failed to export logs');
+      return [];
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    const data = await fetchAllLogsForExport();
+    if (data.length > 0) {
+      exportToCSV(data, 'security-audit-logs');
+      toast.success('Security logs exported to CSV');
+    }
+  };
+
+  const handleExportPDF = async () => {
+    const data = await fetchAllLogsForExport();
+    if (data.length > 0) {
+      exportToPDF(data, 'security-audit-logs', 'Security Audit Logs Report');
+      toast.success('Security logs exported to PDF');
+    }
+  };
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -106,10 +163,30 @@ export function SecurityAuditLogs() {
             </CardTitle>
             <CardDescription>Monitor authentication and security events</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchLogs} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={exporting}>
+                  <Download className={`h-4 w-4 mr-2 ${exporting ? 'animate-pulse' : ''}`} />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportCSV}>
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportPDF}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="outline" size="sm" onClick={fetchLogs} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
